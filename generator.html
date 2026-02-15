@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Envelope Generator — Merkle Envelope Tools</title>
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/headers.js"></script>
+  <style>
+    :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --text-2: #495057; --text-3: #868e96; --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8; --warning: #e67700; --warning-bg: #fff3bf; --danger: #e03131; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 32px 24px; max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--text-2); margin-bottom: 24px; }
+    .subtitle a { color: var(--accent); text-decoration: none; }
+    .notice { background: var(--warning-bg); border: 2px solid var(--warning); border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; }
+    .notice-title { font-weight: 600; margin-bottom: 4px; }
+    .notice-text { color: var(--text-2); font-size: 0.95rem; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+    .field { margin-bottom: 16px; }
+    .label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .input { width: 100%; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; }
+    .input:focus { outline: none; border-color: var(--accent); }
+    textarea.input { min-height: 100px; resize: vertical; }
+    .hint { font-size: 0.8rem; color: var(--text-3); margin-top: 4px; }
+    .btn { display: inline-block; padding: 12px 24px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; margin-bottom: 20px; }
+    .tab { flex: 1; padding: 10px 16px; background: transparent; border: none; border-radius: 6px; color: var(--text-2); font-size: 0.875rem; font-weight: 500; cursor: pointer; text-align: center; }
+    .tab.active { background: var(--accent); color: white; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+    .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+    .progress-text { font-size: 0.85rem; color: var(--text-2); }
+    .result-box { border-radius: 8px; padding: 20px; margin-top: 20px; }
+    .result-box.success { background: var(--success-bg); border: 2px solid var(--success); }
+    .result-title { font-weight: 600; margin-bottom: 12px; color: var(--success); }
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: var(--text-3); }
+    .info-value { font-family: monospace; font-size: 0.85rem; }
+    .envelope-item { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+    .envelope-header { display: flex; justify-content: space-between; align-items: center; }
+    .envelope-txid { font-family: monospace; font-size: 0.85rem; color: var(--accent); }
+    .envelope-amount { font-weight: 500; }
+    .error-box { background: #ffe3e3; border: 2px solid var(--danger); border-radius: 8px; padding: 16px; color: var(--danger); margin-top: 16px; }
+    .input-narrow { width: 100px; }
+    footer { text-align: center; color: var(--text-3); font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Envelope Generator</h1>
+  <p class="subtitle">Create Merkle envelopes for BSV transactions. <a href="https://github.com/speight-wq/merkle-envelope-tools" target="_blank" rel="noopener">GitHub</a></p>
+
+  <div class="notice">
+    <div class="notice-title">Requires Network</div>
+    <div class="notice-text">This tool fetches data from the BSV blockchain. Transfer envelopes to your offline machine via USB.</div>
+  </div>
+
+  <div class="section">
+    <div class="tabs">
+      <button class="tab active" data-tab="txid">By TXID</button>
+      <button class="tab" data-tab="address">By Address</button>
+    </div>
+
+    <div id="tab-txid" class="tab-content active">
+      <div class="field">
+        <label class="label">Transaction ID</label>
+        <input type="text" class="input" id="txid-input" placeholder="Enter 64-character TXID">
+        <div class="hint">Creates envelope for a specific transaction output</div>
+      </div>
+      <div class="field">
+        <label class="label">Output Index (vout)</label>
+        <input type="number" class="input input-narrow" id="vout-input" value="0" min="0">
+      </div>
+      <button class="btn btn-primary" id="fetch-txid-btn">Generate Envelope</button>
+    </div>
+
+    <div id="tab-address" class="tab-content">
+      <div class="field">
+        <label class="label">BSV Address</label>
+        <input type="text" class="input" id="address-input" placeholder="1... or 3...">
+        <div class="hint">Fetches all UTXOs for this address</div>
+      </div>
+      <button class="btn btn-primary" id="fetch-address-btn">Fetch UTXOs</button>
+    </div>
+
+    <div id="progress-section" class="hidden">
+      <div class="divider"></div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text">Fetching...</div>
+    </div>
+
+    <div id="error-section" class="error-box hidden"></div>
+  </div>
+
+  <div id="results-section" class="section hidden">
+    <div class="section-title">Generated Envelopes</div>
+    <div id="envelope-list"></div>
+    <div class="divider"></div>
+    <div class="info-row"><span class="info-label">Total Value</span><span class="info-value" id="total-value"></span></div>
+    <div class="info-row"><span class="info-label">Envelopes</span><span class="info-value" id="envelope-count"></span></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="download-all-btn">Download All</button>
+      <button class="btn btn-secondary" id="copy-all-btn">Copy to Clipboard</button>
+    </div>
+  </div>
+
+  <footer>
+    <a href="signer.html">Signer</a> · Generator · <a href="verifier.html">Verifier</a> · <a href="tests.html">Tests</a>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    const API_BASE = 'https://api.whatsonchain.com/v1/bsv/main';
+    let envelopes = [];
+
+    // ==========================================
+    // Tab Switching
+    // ==========================================
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ==========================================
+    // API Helpers
+    // ==========================================
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error('HTTP ' + res.status);
+      }
+      return res.json();
+    }
+
+    async function fetchText(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    }
+
+    function showProgress(pct, text) {
+      document.getElementById('progress-section').classList.remove('hidden');
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-text').textContent = text;
+    }
+
+    function hideProgress() {
+      document.getElementById('progress-section').classList.add('hidden');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-section');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideError() {
+      document.getElementById('error-section').classList.add('hidden');
+    }
+
+    // ==========================================
+    // Generate Envelope for TXID
+    // ==========================================
+    async function generateEnvelopeForTxid(txid, vout) {
+      // Fetch raw tx
+      const rawTx = await fetchText(API_BASE + '/tx/' + txid + '/hex');
+      if (!rawTx) throw new Error('Transaction not found');
+
+      // Verify txid
+      const computedTxid = reverseHex(bytesToHex(hash256(rawTx)));
+      if (computedTxid.toLowerCase() !== txid.toLowerCase()) {
+        throw new Error('TXID mismatch');
+      }
+
+      // Fetch tx info
+      const txInfo = await fetchJson(API_BASE + '/tx/hash/' + txid);
+      if (!txInfo) throw new Error('TX info not found');
+
+      if (vout >= txInfo.vout.length) throw new Error('vout out of range');
+      const output = txInfo.vout[vout];
+      const satoshis = Math.round(output.value * 1e8);
+
+      // Fetch merkle proof if confirmed
+      let envelope = {
+        format: 'merkle-envelope',
+        version: 1,
+        txid: txid,
+        vout: vout,
+        satoshis: satoshis,
+        rawTx: rawTx,
+        confirmations: txInfo.confirmations || 0
+      };
+
+      if (txInfo.blockhash) {
+        // Fetch merkle proof - try TSC format first, then legacy
+        try {
+          let proofData = null;
+          
+          // Try TSC format endpoint
+          let proof = await fetchJson(API_BASE + '/tx/' + txid + '/proof/tsc');
+          console.log('TSC Proof response:', proof);
+          
+          if (proof && Array.isArray(proof) && proof.length > 0) {
+            // TSC format returns array, first element has the proof
+            proofData = proof[0];
+            console.log('TSC proof data:', proofData);
+          }
+          
+          if (!proofData) {
+            // Try legacy format
+            proof = await fetchJson(API_BASE + '/tx/' + txid + '/proof');
+            console.log('Legacy Proof response:', proof);
+            if (proof && proof.length > 0) {
+              proofData = proof[0];
+            }
+          }
+          
+          // TSC format uses 'siblings' not 'nodes'
+          const proofNodes = proofData ? (proofData.nodes || proofData.siblings || []) : [];
+          const txIndex = proofData ? proofData.index : 0;
+          
+          if (proofNodes.length > 0) {
+            console.log('Proof nodes:', proofNodes.length, 'index:', txIndex);
+
+            // Fetch block header (returns JSON, not raw hex)
+            const headerInfo = await fetchJson(API_BASE + '/block/' + txInfo.blockhash + '/header');
+            console.log('Header info:', headerInfo);
+            
+            // Build raw header from JSON fields (80 bytes = 160 hex chars)
+            const version = headerInfo.version.toString(16).padStart(8, '0');
+            const versionLE = version.match(/../g).reverse().join('');
+            const prevBlock = headerInfo.previousblockhash.match(/../g).reverse().join('');
+            const merkleRoot = headerInfo.merkleroot.match(/../g).reverse().join('');
+            const time = headerInfo.time.toString(16).padStart(8, '0');
+            const timeLE = time.match(/../g).reverse().join('');
+            const bits = headerInfo.bits;
+            const bitsLE = bits.match(/../g).reverse().join('');
+            const nonce = headerInfo.nonce.toString(16).padStart(8, '0');
+            const nonceLE = nonce.match(/../g).reverse().join('');
+            const blockHeader = versionLE + prevBlock + merkleRoot + timeLE + bitsLE + nonceLE;
+            console.log('Built header:', blockHeader.length, 'chars');
+
+            // Verify merkle proof
+            const header = parseHeader(blockHeader);
+
+            // Build proof array for envelope - handle both '*' wildcards and actual hashes
+            const proofArray = proofNodes.map((node, i) => {
+              // TSC format uses '*' for positions that should use the computed hash
+              const isWildcard = node === '*';
+              return {
+                hash: isWildcard ? '*' : reverseHex(node),
+                pos: ((txIndex >> i) & 1) ? 'L' : 'R'
+              };
+            });
+
+            // Verify
+            const valid = verifyMerkleProof(txid, proofArray, header.merkleRoot);
+            console.log('Merkle proof valid:', valid);
+
+            if (valid) {
+              envelope.blockHeader = blockHeader;
+              envelope.blockHash = txInfo.blockhash;
+              envelope.proof = proofArray;
+            }
+          } else {
+            console.log('No proof nodes available for', txid);
+          }
+        } catch (proofErr) {
+          console.error('Failed to get proof:', proofErr);
+        }
+      }
+
+      return envelope;
+    }
+
+    // ==========================================
+    // Fetch by TXID
+    // ==========================================
+    document.getElementById('fetch-txid-btn').addEventListener('click', async function() {
+      const txid = document.getElementById('txid-input').value.trim();
+      const vout = parseInt(document.getElementById('vout-input').value) || 0;
+
+      if (!txid || txid.length !== 64) {
+        showError('Enter a valid 64-character TXID');
+        return;
+      }
+
+      hideError();
+      envelopes = [];
+
+      try {
+        showProgress(20, 'Fetching transaction...');
+        const envelope = await generateEnvelopeForTxid(txid, vout);
+        showProgress(100, 'Done');
+
+        envelopes = [envelope];
+        displayEnvelopes();
+
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        hideProgress();
+      }
+    });
+
+    // ==========================================
+    // Fetch by Address
+    // ==========================================
+    document.getElementById('fetch-address-btn').addEventListener('click', async function() {
+      const address = document.getElementById('address-input').value.trim();
+
+      if (!address) {
+        showError('Enter an address');
+        return;
+      }
+
+      hideError();
+      envelopes = [];
+
+      try {
+        showProgress(10, 'Fetching UTXOs...');
+
+        // Fetch UTXOs
+        const utxos = await fetchJson(API_BASE + '/address/' + address + '/unspent');
+        if (!utxos || utxos.length === 0) {
+          showError('No UTXOs found for this address');
+          hideProgress();
+          return;
+        }
+
+        showProgress(20, 'Found ' + utxos.length + ' UTXOs. Generating envelopes...');
+
+        for (let i = 0; i < utxos.length; i++) {
+          const utxo = utxos[i];
+          const pct = 20 + (80 * (i + 1) / utxos.length);
+          showProgress(pct, 'Processing ' + (i + 1) + ' / ' + utxos.length);
+
+          try {
+            const envelope = await generateEnvelopeForTxid(utxo.tx_hash, utxo.tx_pos);
+            envelopes.push(envelope);
+          } catch (err) {
+            console.error('Failed to generate envelope for', utxo.tx_hash, err);
+          }
+
+          // Rate limiting
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        displayEnvelopes();
+
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        hideProgress();
+      }
+    });
+
+    // ==========================================
+    // Display Envelopes
+    // ==========================================
+    function displayEnvelopes() {
+      if (envelopes.length === 0) {
+        document.getElementById('results-section').classList.add('hidden');
+        return;
+      }
+
+      const listDiv = document.getElementById('envelope-list');
+      let html = '';
+      let total = 0;
+
+      for (const env of envelopes) {
+        total += env.satoshis;
+        const status = env.proof ? '✓ Merkle proof' : (env.confirmations > 0 ? '! No proof' : '⚠ Unconfirmed');
+        const statusColor = env.proof ? 'var(--success)' : 'var(--warning)';
+
+        html += '<div class="envelope-item">' +
+          '<div class="envelope-header">' +
+          '<span class="envelope-txid">' + env.txid.slice(0, 16) + '...:' + env.vout + '</span>' +
+          '<span class="envelope-amount">' + (env.satoshis / 1e8).toFixed(8) + ' BSV</span>' +
+          '</div>' +
+          '<div style="font-size: 0.8rem; color: ' + statusColor + ';">' + status + '</div>' +
+          '</div>';
+      }
+
+      listDiv.innerHTML = html;
+      document.getElementById('total-value').textContent = (total / 1e8).toFixed(8) + ' BSV';
+      document.getElementById('envelope-count').textContent = envelopes.length;
+      document.getElementById('results-section').classList.remove('hidden');
+    }
+
+    // ==========================================
+    // Download / Copy
+    // ==========================================
+    document.getElementById('download-all-btn').addEventListener('click', function() {
+      const data = envelopes.length === 1 ? envelopes[0] : envelopes;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'envelopes-' + Date.now() + '.json';
+      a.click();
+    });
+
+    document.getElementById('copy-all-btn').addEventListener('click', function() {
+      const data = envelopes.length === 1 ? envelopes[0] : envelopes;
+      navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+        this.textContent = '✓ Copied!';
+        setTimeout(() => this.textContent = 'Copy to Clipboard', 2000);
+      });
+    });
+
+  })();
+  </script>
+</body>
+</html>

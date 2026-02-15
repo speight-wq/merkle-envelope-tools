@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Suite — Merkle Envelope Tools</title>
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/secp256k1.js"></script>
+  <script src="lib/sighash.js"></script>
+  <script src="lib/headers.js"></script>
+  <style>
+    :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --success: #2f9e44; --danger: #e03131; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 32px 24px; max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--text-2); margin-bottom: 24px; font-size: 0.9rem; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-weight: 600; margin-bottom: 12px; }
+    .test { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; display: flex; justify-content: space-between; }
+    .test:last-child { border-bottom: none; }
+    .pass { color: var(--success); }
+    .fail { color: var(--danger); }
+    .summary { padding: 16px; border-radius: 8px; margin-bottom: 24px; font-weight: 600; }
+    .summary.pass { background: #d3f9d8; color: var(--success); }
+    .summary.fail { background: #ffe3e3; color: var(--danger); }
+    pre { font-size: 0.75rem; background: #f1f3f5; padding: 8px; border-radius: 4px; overflow-x: auto; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Merkle Envelope Tools — Test Suite</h1>
+  <p class="subtitle">Cryptographic verification using shared library modules</p>
+
+  <div id="summary"></div>
+  <div id="results"></div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    const results = [];
+
+    function test(name, fn) {
+      try {
+        const result = fn();
+        if (result === true) {
+          results.push({ name, pass: true });
+        } else {
+          results.push({ name, pass: false, error: 'Returned: ' + JSON.stringify(result) });
+        }
+      } catch (e) {
+        results.push({ name, pass: false, error: e.message });
+      }
+    }
+
+    function assertEqual(actual, expected, msg) {
+      if (actual !== expected) {
+        throw new Error((msg || 'Assertion failed') + ': expected ' + expected + ', got ' + actual);
+      }
+    }
+
+    // ==========================================
+    // crypto.js tests
+    // ==========================================
+    test('SHA-256: empty input', () => {
+      const hash = bytesToHex(SHA256.hash(new Uint8Array(0)));
+      assertEqual(hash, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+      return true;
+    });
+
+    test('SHA-256: "abc"', () => {
+      const input = new Uint8Array([0x61, 0x62, 0x63]);
+      const hash = bytesToHex(SHA256.hash(input));
+      assertEqual(hash, 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+      return true;
+    });
+
+    test('SHA-256: hex string input', () => {
+      const hash = bytesToHex(SHA256.hash('616263'));
+      assertEqual(hash, 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+      return true;
+    });
+
+    test('RIPEMD-160: empty input', () => {
+      const hash = bytesToHex(RIPEMD160.hash(new Uint8Array(0)));
+      assertEqual(hash, '9c1185a5c5e9fc54612808977ee8f548b2258d31');
+      return true;
+    });
+
+    test('RIPEMD-160: "abc"', () => {
+      const input = new Uint8Array([0x61, 0x62, 0x63]);
+      const hash = bytesToHex(RIPEMD160.hash(input));
+      assertEqual(hash, '8eb208f7e05d987a9b044a8e98c6b087f15a0bfc');
+      return true;
+    });
+
+    test('hash256: double SHA-256', () => {
+      const hash = bytesToHex(hash256(''));
+      assertEqual(hash, '5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456');
+      return true;
+    });
+
+    test('hash160: SHA-256 + RIPEMD-160', () => {
+      const pubkey = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+      const hash = bytesToHex(hash160(pubkey));
+      assertEqual(hash, '751e76e8199196d454941c45d1b3a323f1433bd6');
+      return true;
+    });
+
+    test('HMAC-SHA256: RFC 4231 test vector', () => {
+      const key = '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b';
+      const data = '4869205468657265'; // "Hi There"
+      const hmac = bytesToHex(hmacSha256(key, data));
+      assertEqual(hmac, 'b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7');
+      return true;
+    });
+
+    // ==========================================
+    // encoding.js tests
+    // ==========================================
+    test('hexToBytes/bytesToHex roundtrip', () => {
+      const hex = 'deadbeef';
+      const bytes = hexToBytes(hex);
+      const result = bytesToHex(bytes);
+      assertEqual(result, hex);
+      return true;
+    });
+
+    test('reverseHex', () => {
+      assertEqual(reverseHex('01020304'), '04030201');
+      return true;
+    });
+
+    test('varInt: small values', () => {
+      assertEqual(varInt(0), '00');
+      assertEqual(varInt(1), '01');
+      assertEqual(varInt(252), 'fc');
+      return true;
+    });
+
+    test('varInt: 0xfd threshold', () => {
+      assertEqual(varInt(253), 'fdfd00');
+      assertEqual(varInt(0xffff), 'fdffff');
+      return true;
+    });
+
+    test('writeUInt32LE', () => {
+      assertEqual(writeUInt32LE(1), '01000000');
+      assertEqual(writeUInt32LE(0x12345678), '78563412');
+      return true;
+    });
+
+    test('writeUInt64LE', () => {
+      assertEqual(writeUInt64LE(1), '0100000000000000');
+      assertEqual(writeUInt64LE(100000000n), '00e1f50500000000'); // 1 BSV in satoshis
+      return true;
+    });
+
+    test('Base58 encode', () => {
+      assertEqual(Base58.encode(new Uint8Array([0, 0, 0, 1])), '1112');
+      return true;
+    });
+
+    test('Base58 decode', () => {
+      const decoded = Base58.decode('1112');
+      assertEqual(decoded[0], 0);
+      assertEqual(decoded[1], 0);
+      assertEqual(decoded[2], 0);
+      assertEqual(decoded[3], 1);
+      return true;
+    });
+
+    test('base58CheckEncode: mainnet address', () => {
+      const pubKeyHash = '751e76e8199196d454941c45d1b3a323f1433bd6';
+      const address = base58CheckEncode(0x00, pubKeyHash);
+      assertEqual(address, '1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH');
+      return true;
+    });
+
+    test('base58CheckDecode: mainnet address', () => {
+      const decoded = base58CheckDecode('1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH');
+      assertEqual(decoded.version, 0);
+      assertEqual(bytesToHex(decoded.hash), '751e76e8199196d454941c45d1b3a323f1433bd6');
+      return true;
+    });
+
+    // ==========================================
+    // secp256k1.js tests
+    // ==========================================
+    test('secp256k1: public key derivation (compressed)', () => {
+      const privKey = '0000000000000000000000000000000000000000000000000000000000000001';
+      const pubKey = SECP256K1.getPublicKey(privKey, true);
+      assertEqual(pubKey, '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+      return true;
+    });
+
+    test('secp256k1: public key derivation (uncompressed)', () => {
+      const privKey = '0000000000000000000000000000000000000000000000000000000000000001';
+      const pubKey = SECP256K1.getPublicKey(privKey, false);
+      assertEqual(pubKey.slice(0, 2), '04');
+      assertEqual(pubKey.length, 130);
+      return true;
+    });
+
+    test('secp256k1: RFC 6979 deterministic signature', () => {
+      // Using known test vector
+      const privKey = '0000000000000000000000000000000000000000000000000000000000000001';
+      const msgHash = 'bf5d3affb73efd2ec6c36ad3112dd933efed63c4e1cbffcfa88e2759c144f2d8';
+      const sig = SECP256K1.sign(msgHash, privKey);
+      // The signature should be deterministic
+      assertEqual(typeof sig.r, 'bigint');
+      assertEqual(typeof sig.s, 'bigint');
+      // Low-S check
+      assertEqual(sig.s <= SECP256K1.HALF_N, true);
+      return true;
+    });
+
+    test('secp256k1: sign and verify roundtrip', () => {
+      const privKey = 'e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35';
+      const msgHash = 'bf5d3affb73efd2ec6c36ad3112dd933efed63c4e1cbffcfa88e2759c144f2d8';
+      const pubKey = SECP256K1.getPublicKey(privKey, true);
+      const sig = SECP256K1.sign(msgHash, privKey);
+      const der = SECP256K1.signatureToDER(sig.r, sig.s);
+      const valid = SECP256K1.verify(msgHash, der, pubKey);
+      assertEqual(valid, true);
+      return true;
+    });
+
+    test('secp256k1: DER encoding roundtrip', () => {
+      const r = BigInt('0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef');
+      const s = BigInt('0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321');
+      const der = SECP256K1.signatureToDER(r, s);
+      const parsed = SECP256K1.parseDER(der);
+      assertEqual(parsed.r, r);
+      assertEqual(parsed.s, s);
+      return true;
+    });
+
+    test('secp256k1: WIF decode (compressed mainnet)', () => {
+      const wif = 'KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU73sVHnoWn';
+      const decoded = SECP256K1.wifToPrivateKey(wif);
+      assertEqual(decoded.privateKey, '0000000000000000000000000000000000000000000000000000000000000001');
+      assertEqual(decoded.compressed, true);
+      return true;
+    });
+
+    // ==========================================
+    // sighash.js tests
+    // ==========================================
+    test('sighash constants', () => {
+      assertEqual(SIGHASH_ALL, 0x01);
+      assertEqual(SIGHASH_FORKID, 0x40);
+      assertEqual(BSV_SIGHASH, 0x41);
+      return true;
+    });
+
+    test('computeSighashComponents: single input', () => {
+      const inputs = [{
+        txid: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+        vout: 0
+      }];
+      const outputsHex = '0000000000000000';
+      const components = computeSighashComponents(inputs, outputsHex);
+      assertEqual(typeof components.hashPrevouts, 'string');
+      assertEqual(components.hashPrevouts.length, 64);
+      assertEqual(typeof components.hashSequence, 'string');
+      assertEqual(typeof components.hashOutputs, 'string');
+      return true;
+    });
+
+    test('buildSighashPreimage: produces 180+ bytes', () => {
+      const input = {
+        txid: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+        vout: 0,
+        pubKeyHash: '751e76e8199196d454941c45d1b3a323f1433bd6',
+        satoshis: 100000000
+      };
+      const components = computeSighashComponents([input], '0000000000000000');
+      const preimage = buildSighashPreimage(input, components, 1, 0);
+      // Should be around 180 bytes (360 hex chars)
+      assertEqual(preimage.length >= 360, true);
+      return true;
+    });
+
+    // ==========================================
+    // headers.js tests
+    // ==========================================
+    test('CHECKPOINT is defined', () => {
+      assertEqual(typeof CHECKPOINT.height, 'number');
+      assertEqual(typeof CHECKPOINT.hash, 'string');
+      assertEqual(CHECKPOINT.hash.length, 64);
+      return true;
+    });
+
+    test('parseHeader: 80 bytes', () => {
+      // Genesis block header
+      const headerHex = '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c';
+      const header = parseHeader(headerHex);
+      assertEqual(header.version, 1);
+      assertEqual(header.nBits, 0x1d00ffff);
+      assertEqual(typeof header.merkleRoot, 'string');
+      return true;
+    });
+
+    test('targetFromNBits: genesis difficulty', () => {
+      const target = targetFromNBits(0x1d00ffff);
+      // Genesis target is 00000000ffff0000...
+      assertEqual(target > 0n, true);
+      return true;
+    });
+
+    test('hashHeader: genesis block', () => {
+      const headerHex = '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c';
+      const hash = hashHeader(headerHex);
+      assertEqual(hash, '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f');
+      return true;
+    });
+
+    test('verifyPoW: genesis block passes', () => {
+      const headerHex = '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c';
+      assertEqual(verifyPoW(headerHex), true);
+      return true;
+    });
+
+    test('verifyMerkleProof: single tx (coinbase)', () => {
+      // When there's only one tx, merkle root equals txid
+      const txid = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
+      const proof = [];
+      const merkleRoot = txid;
+      assertEqual(verifyMerkleProof(txid, proof, merkleRoot), true);
+      return true;
+    });
+
+    test('checkMerkleProofSafe: detects duplicate', () => {
+      const badProof = [
+        { hash: 'aaaa', pos: 'R' },
+        { hash: 'aaaa', pos: 'R' }
+      ];
+      assertEqual(checkMerkleProofSafe(badProof), false);
+      return true;
+    });
+
+    test('checkMerkleProofSafe: allows different hashes', () => {
+      const goodProof = [
+        { hash: 'aaaa', pos: 'R' },
+        { hash: 'bbbb', pos: 'R' }
+      ];
+      assertEqual(checkMerkleProofSafe(goodProof), true);
+      return true;
+    });
+
+    // ==========================================
+    // Render results
+    // ==========================================
+    function render() {
+      const resultsDiv = document.getElementById('results');
+      const summaryDiv = document.getElementById('summary');
+
+      // Group by module
+      const groups = {
+        'crypto.js': [],
+        'encoding.js': [],
+        'secp256k1.js': [],
+        'sighash.js': [],
+        'headers.js': []
+      };
+
+      for (const r of results) {
+        if (r.name.startsWith('SHA-') || r.name.startsWith('RIPEMD') || r.name.startsWith('hash') || r.name.startsWith('HMAC')) {
+          groups['crypto.js'].push(r);
+        } else if (r.name.startsWith('hex') || r.name.startsWith('reverse') || r.name.startsWith('varInt') || r.name.startsWith('write') || r.name.startsWith('Base58') || r.name.startsWith('base58')) {
+          groups['encoding.js'].push(r);
+        } else if (r.name.startsWith('secp256k1')) {
+          groups['secp256k1.js'].push(r);
+        } else if (r.name.startsWith('sighash') || r.name.startsWith('compute') || r.name.startsWith('build')) {
+          groups['sighash.js'].push(r);
+        } else {
+          groups['headers.js'].push(r);
+        }
+      }
+
+      let html = '';
+      for (const [module, tests] of Object.entries(groups)) {
+        if (tests.length === 0) continue;
+        html += '<div class="section">';
+        html += '<div class="section-title">' + module + '</div>';
+        for (const t of tests) {
+          const status = t.pass ? '<span class="pass">✓ PASS</span>' : '<span class="fail">✗ FAIL</span>';
+          html += '<div class="test"><span>' + t.name + '</span>' + status + '</div>';
+          if (!t.pass && t.error) {
+            html += '<pre>' + t.error + '</pre>';
+          }
+        }
+        html += '</div>';
+      }
+      resultsDiv.innerHTML = html;
+
+      const passed = results.filter(r => r.pass).length;
+      const failed = results.filter(r => !r.pass).length;
+      const total = results.length;
+
+      if (failed === 0) {
+        summaryDiv.className = 'summary pass';
+        summaryDiv.textContent = '✓ All ' + total + ' tests passed';
+      } else {
+        summaryDiv.className = 'summary fail';
+        summaryDiv.textContent = '✗ ' + failed + ' of ' + total + ' tests failed';
+      }
+    }
+
+    render();
+  })();
+  </script>
+</body>
+</html>

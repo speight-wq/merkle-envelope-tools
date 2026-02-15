@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Header Chain Generator — Merkle Envelope Tools</title>
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/headers.js"></script>
+  <style>
+    :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --text-2: #495057; --text-3: #868e96; --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8; --warning: #e67700; --warning-bg: #fff3bf; --danger: #e03131; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 32px 24px; max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--text-2); margin-bottom: 24px; }
+    .subtitle a { color: var(--accent); text-decoration: none; }
+    .notice { background: var(--warning-bg); border: 2px solid var(--warning); border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; }
+    .notice-title { font-weight: 600; margin-bottom: 4px; }
+    .notice-text { color: var(--text-2); font-size: 0.95rem; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+    .field { margin-bottom: 16px; }
+    .label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .input { width: 100%; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; }
+    .input:focus { outline: none; border-color: var(--accent); }
+    .hint { font-size: 0.8rem; color: var(--text-3); margin-top: 4px; }
+    .btn { display: inline-block; padding: 12px 24px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+    .progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+    .progress-text { font-size: 0.85rem; color: var(--text-2); }
+    .result-box { background: var(--success-bg); border: 2px solid var(--success); border-radius: 8px; padding: 20px; margin-top: 20px; }
+    .result-title { font-weight: 600; color: var(--success); margin-bottom: 12px; }
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: var(--text-3); }
+    .info-value { font-family: monospace; font-size: 0.85rem; }
+    .error-box { background: #ffe3e3; border: 2px solid var(--danger); border-radius: 8px; padding: 16px; color: var(--danger); margin-top: 16px; }
+    .usage-list { margin-left: 20px; color: var(--text-2); font-size: 0.9rem; }
+    .usage-list li { margin-bottom: 8px; }
+    footer { text-align: center; color: var(--text-3); font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Header Chain Generator</h1>
+  <p class="subtitle">Download BSV block headers for offline verification. <a href="https://github.com/speight-wq/merkle-envelope-tools" target="_blank" rel="noopener">GitHub</a></p>
+
+  <div class="notice">
+    <div class="notice-title">Requires Network</div>
+    <div class="notice-text">This tool fetches block headers from the BSV network. Transfer headers.bin to your offline machine via USB.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Checkpoint</div>
+    <div class="info-row">
+      <span class="info-label">Height</span>
+      <span class="info-value" id="checkpoint-height"></span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Hash</span>
+      <span class="info-value" id="checkpoint-hash" style="font-size: 0.75rem;"></span>
+    </div>
+    <div class="hint">Headers are verified from this checkpoint forward.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Generate Header Chain</div>
+    <div class="field">
+      <label class="label">Start Height</label>
+      <input type="text" class="input" id="start-height" placeholder="e.g., 935000">
+      <div class="hint">Must be greater than checkpoint (880,000). Leave empty to start from checkpoint.</div>
+    </div>
+    <div class="field">
+      <label class="label">Number of Headers</label>
+      <input type="text" class="input" id="header-count" value="100" placeholder="e.g., 100">
+      <div class="hint">Recommended: 100-500. More headers = longer download but covers more blocks.</div>
+    </div>
+    <button class="btn btn-primary" id="generate-btn">Download Headers</button>
+
+    <div id="progress-section" class="hidden">
+      <div class="divider"></div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text">Starting...</div>
+    </div>
+
+    <div id="result-section" class="hidden">
+      <div class="result-box">
+        <div class="result-title">✓ Headers Downloaded</div>
+        <div class="info-row"><span class="info-label">Headers</span><span class="info-value" id="result-count"></span></div>
+        <div class="info-row"><span class="info-label">Range</span><span class="info-value" id="result-range"></span></div>
+        <div class="info-row"><span class="info-label">File Size</span><span class="info-value" id="result-size"></span></div>
+        <div class="info-row"><span class="info-label">Tip Hash</span><span class="info-value" id="result-tip" style="font-size: 0.75rem;"></span></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="download-btn">Download headers.bin</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="error-section" class="error-box hidden"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Usage</div>
+    <ol class="usage-list">
+      <li>Click "Download Headers" to fetch headers from checkpoint to tip</li>
+      <li>Save headers.bin to USB drive</li>
+      <li>On offline machine, load in signer.html Step 0</li>
+    </ol>
+  </div>
+
+  <footer>
+    <a href="generator.html">Generator</a> · Headers · <a href="signer.html">Signer</a> · <a href="tests.html">Tests</a>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    const API_BASE = 'https://api.whatsonchain.com/v1/bsv/main';
+    let headerChain = [];
+
+    // Display checkpoint
+    document.getElementById('checkpoint-height').textContent = CHECKPOINT.height.toLocaleString();
+    document.getElementById('checkpoint-hash').textContent = CHECKPOINT.hash;
+
+    async function fetchText(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }
+
+    document.getElementById('generate-btn').addEventListener('click', async function() {
+      const btn = this;
+      const progressSection = document.getElementById('progress-section');
+      const progressFill = document.getElementById('progress-fill');
+      const progressText = document.getElementById('progress-text');
+      const resultSection = document.getElementById('result-section');
+      const errorSection = document.getElementById('error-section');
+
+      btn.disabled = true;
+      progressSection.classList.remove('hidden');
+      resultSection.classList.add('hidden');
+      errorSection.classList.add('hidden');
+      headerChain = [];
+
+      try {
+        // Get parameters
+        const startHeightInput = document.getElementById('start-height').value.trim();
+        const headerCountInput = document.getElementById('header-count').value.trim();
+
+        const headerCount = parseInt(headerCountInput) || 100;
+        if (headerCount < 1 || headerCount > 1000) {
+          throw new Error('Header count must be 1-1000');
+        }
+
+        let startHeight;
+        if (startHeightInput) {
+          startHeight = parseInt(startHeightInput);
+          if (isNaN(startHeight) || startHeight <= CHECKPOINT.height) {
+            throw new Error('Start height must be > ' + CHECKPOINT.height);
+          }
+        } else {
+          // Start from checkpoint + 1
+          startHeight = CHECKPOINT.height + 1;
+        }
+
+        const endHeight = startHeight + headerCount - 1;
+        progressText.textContent = 'Downloading ' + headerCount + ' headers (' + startHeight + ' → ' + endHeight + ')...';
+
+        // We need to build chain from checkpoint, so if startHeight > checkpoint+1,
+        // we need the prevHash of startHeight block
+        let prevHash;
+        if (startHeight === CHECKPOINT.height + 1) {
+          prevHash = CHECKPOINT.hash;
+        } else {
+          // Fetch the block info at startHeight-1 to get its hash
+          progressText.textContent = 'Fetching starting point...';
+          const prevBlockInfo = await fetchJson(API_BASE + '/block/height/' + (startHeight - 1));
+          prevHash = prevBlockInfo.hash;
+        }
+
+        for (let h = startHeight; h <= endHeight; h++) {
+          // First get block info by height (returns JSON with hash)
+          const blockInfo = await fetchJson(API_BASE + '/block/height/' + h);
+          const blockHash = blockInfo.hash;
+          if (!blockHash || blockHash.length !== 64) {
+            throw new Error('Invalid block hash at height ' + h);
+          }
+          
+          // Get header details (returns JSON, not raw hex)
+          const headerInfo = await fetchJson(API_BASE + '/block/' + blockHash + '/header');
+          
+          // Build raw header from JSON fields (80 bytes = 160 hex chars)
+          // Header structure: version (4) + prevBlock (32) + merkleRoot (32) + time (4) + bits (4) + nonce (4)
+          const version = headerInfo.version.toString(16).padStart(8, '0');
+          const versionLE = version.match(/../g).reverse().join('');
+          
+          const prevBlock = headerInfo.previousblockhash.match(/../g).reverse().join('');
+          const merkleRoot = headerInfo.merkleroot.match(/../g).reverse().join('');
+          
+          const time = headerInfo.time.toString(16).padStart(8, '0');
+          const timeLE = time.match(/../g).reverse().join('');
+          
+          const bits = headerInfo.bits; // Already hex string
+          const bitsLE = bits.match(/../g).reverse().join('');
+          
+          const nonce = headerInfo.nonce.toString(16).padStart(8, '0');
+          const nonceLE = nonce.match(/../g).reverse().join('');
+          
+          const headerHex = versionLE + prevBlock + merkleRoot + timeLE + bitsLE + nonceLE;
+          
+          if (headerHex.length !== 160) {
+            throw new Error('Built header wrong length at height ' + h + ': got ' + headerHex.length);
+          }
+          
+          const header = parseHeader(headerHex);
+
+          // Verify linkage
+          if (header.prevBlock.toLowerCase() !== prevHash.toLowerCase()) {
+            throw new Error('Chain break at height ' + h + ': prevBlock=' + header.prevBlock + ' expected=' + prevHash);
+          }
+
+          // Verify PoW
+          const hash = hashHeader(headerHex);
+          if (!verifyPoW(headerHex)) {
+            throw new Error('Invalid PoW at height ' + h);
+          }
+
+          headerChain.push({ height: h, hash: hash, raw: headerHex });
+          prevHash = hash;
+
+          const pct = ((h - startHeight + 1) / headerCount * 100).toFixed(1);
+          progressFill.style.width = pct + '%';
+          progressText.textContent = 'Downloaded ' + (h - startHeight + 1) + ' / ' + headerCount;
+
+          // Rate limiting - delay after every header to stay under 3 req/sec
+          // We make 2 requests per header, so wait 700ms between headers
+          await new Promise(r => setTimeout(r, 700));
+        }
+
+        // Show result
+        progressSection.classList.add('hidden');
+        document.getElementById('result-count').textContent = headerChain.length.toLocaleString();
+        document.getElementById('result-range').textContent = startHeight + ' → ' + endHeight;
+        document.getElementById('result-size').textContent = ((40 + headerChain.length * 80) / 1024).toFixed(1) + ' KB';
+        document.getElementById('result-tip').textContent = headerChain[headerChain.length - 1].hash;
+        resultSection.classList.remove('hidden');
+
+      } catch (err) {
+        progressSection.classList.add('hidden');
+        errorSection.textContent = err.message;
+        errorSection.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('download-btn').addEventListener('click', function() {
+      if (headerChain.length === 0) return;
+
+      // Binary format:
+      // 4 bytes: start height - 1 (the "anchor" block height)
+      // 32 bytes: anchor block hash (prevHash of first header)
+      // 4 bytes: header count (LE)
+      // N * 80 bytes: headers
+
+      const startHeight = headerChain[0].height;
+      const anchorHeight = startHeight - 1;
+      
+      // Get anchor hash from first header's prevBlock
+      const firstHeader = parseHeader(headerChain[0].raw);
+      const anchorHash = firstHeader.prevBlock;
+
+      const headerCount = headerChain.length;
+      const totalSize = 4 + 32 + 4 + (headerCount * 80);
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      const bytes = new Uint8Array(buffer);
+
+      // Anchor height (start - 1)
+      view.setUint32(0, anchorHeight, true);
+
+      // Anchor hash
+      const anchorHashBytes = hexToBytes(anchorHash);
+      bytes.set(anchorHashBytes, 4);
+
+      // Header count
+      view.setUint32(36, headerCount, true);
+
+      // Headers
+      let offset = 40;
+      for (const h of headerChain) {
+        bytes.set(hexToBytes(h.raw), offset);
+        offset += 80;
+      }
+
+      // Download
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const endHeight = startHeight + headerCount - 1;
+      a.download = 'headers-' + startHeight + '-to-' + endHeight + '.bin';
+      a.click();
+    });
+
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline Transaction Signer — Merkle Envelope Tools</title>
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/secp256k1.js"></script>
+  <script src="lib/sighash.js"></script>
+  <script src="lib/headers.js"></script>
+  <style>
+    :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --text-2: #495057; --text-3: #868e96; --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8; --warning: #e67700; --warning-bg: #fff3bf; --danger: #e03131; --danger-bg: #fff5f5; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 32px 24px; max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--text-2); margin-bottom: 24px; }
+    .subtitle a { color: var(--accent); text-decoration: none; }
+    .notice { background: var(--warning-bg); border: 2px solid var(--warning); border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; }
+    .notice-title { font-weight: 600; margin-bottom: 4px; }
+    .notice-text { color: var(--text-2); font-size: 0.95rem; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+    .step-number { display: inline-block; width: 24px; height: 24px; background: var(--accent); color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 0.8rem; font-weight: 600; margin-right: 8px; }
+    .field { margin-bottom: 16px; }
+    .label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .input { width: 100%; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; }
+    .input:focus { outline: none; border-color: var(--accent); }
+    textarea.input { min-height: 100px; resize: vertical; }
+    .hint { font-size: 0.8rem; color: var(--text-3); margin-top: 4px; }
+    .hint a { color: var(--accent); }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .checkbox-row input { width: 16px; height: 16px; }
+    .checkbox-row label { font-size: 0.875rem; color: var(--text-2); cursor: pointer; }
+    .btn { display: inline-block; padding: 10px 20px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+    .btn-sign { background: var(--warning); color: white; font-weight: 600; padding: 14px 28px; font-size: 1rem; }
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .danger-zone { border: 2px solid var(--danger); background: var(--danger-bg); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .danger-zone .label { color: var(--danger); font-weight: 600; }
+    .danger-zone .input { border-color: var(--danger); }
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: var(--text-3); }
+    .info-value { font-family: monospace; font-size: 0.85rem; text-align: right; word-break: break-all; max-width: 60%; }
+    .result-box { background: var(--success-bg); border: 2px solid var(--success); border-radius: 8px; padding: 20px; margin-top: 20px; }
+    .result-title { font-weight: 600; color: var(--success); margin-bottom: 12px; }
+    .error-box { background: #ffe3e3; border: 2px solid var(--danger); border-radius: 8px; padding: 16px; margin-top: 16px; color: var(--danger); }
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .status-bar { padding: 8px 16px; border-radius: 6px; margin-bottom: 24px; font-size: 0.875rem; display: flex; align-items: center; gap: 8px; }
+    .status-bar.offline { background: var(--success-bg); border: 1px solid var(--success); color: var(--success); }
+    .status-bar.online { background: var(--danger-bg); border: 1px solid var(--danger); color: var(--danger); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .confirm-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .confirm-box { background: var(--bg); border-radius: 12px; padding: 24px; max-width: 440px; width: 95%; }
+    .confirm-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 16px; color: var(--warning); }
+    .confirm-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.9rem; }
+    .confirm-buttons { display: flex; gap: 12px; margin-top: 20px; }
+    .next-steps { background: var(--bg); border: 1px solid var(--success); border-radius: 6px; padding: 16px; }
+    .next-steps-title { font-weight: 600; color: var(--success); margin-bottom: 8px; font-size: 0.9rem; }
+    .next-steps-list { margin: 0 0 12px 20px; font-size: 0.875rem; color: var(--text-2); }
+    .next-steps-list li { margin-bottom: 4px; }
+    .next-steps-list a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .next-steps-list a:hover { text-decoration: underline; }
+    .next-steps-warning { font-size: 0.8rem; color: var(--warning); font-weight: 500; }
+    .confirm-buttons .btn-secondary { padding: 12px 20px; }
+    .confirm-buttons .btn-sign { padding: 12px 32px; }
+    footer { text-align: center; color: var(--text-3); font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Offline Transaction Signer</h1>
+  <p class="subtitle">Sign BSV transactions offline. <a href="https://github.com/speight-wq/merkle-envelope-tools" target="_blank" rel="noopener">GitHub</a></p>
+
+  <div id="network-status" class="status-bar offline">
+    <span class="status-dot"></span>
+    <span id="network-status-text">Checking...</span>
+  </div>
+
+  <div class="notice">
+    <div class="notice-title">Security Notice</div>
+    <div class="notice-text">This page works offline. Disconnect from internet before entering your private key.</div>
+  </div>
+
+  <!-- Step 0: Header Chain -->
+  <div class="section">
+    <div class="section-title"><span class="step-number">0</span>Load Header Chain <span style="font-weight: normal; color: var(--text-3);">(Optional)</span></div>
+    <div class="field">
+      <label class="label">Header chain file (headers.bin)</label>
+      <input type="file" class="input" id="headers-file" accept=".bin" style="padding: 10px;">
+      <div class="hint">Optional. Enables header chain verification. Generate at <a href="headers-generator.html">Headers Generator</a>.</div>
+    </div>
+    <div id="chain-info" class="hidden">
+      <div class="info-row"><span class="info-label">Headers</span><span class="info-value" id="chain-count">—</span></div>
+      <div class="info-row"><span class="info-label">Tip Height</span><span class="info-value" id="chain-tip">—</span></div>
+      <div id="chain-status" style="margin-top: 16px; padding: 12px; border-radius: 6px;"></div>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="skip-chain" checked>
+      <label for="skip-chain">Skip chain verification (trust envelope source)</label>
+    </div>
+  </div>
+
+  <!-- Step 1: Load Envelopes -->
+  <div class="section">
+    <div class="section-title"><span class="step-number">1</span>Load Envelope(s)</div>
+    <div class="field">
+      <label class="label">Paste envelope JSON</label>
+      <textarea class="input" id="envelope-input" placeholder='{"txid": "...", "rawTx": "...", "vout": 0, "satoshis": 100000}'></textarea>
+      <div class="hint">Generate at <a href="generator.html">Envelope Generator</a>. Supports multiple envelopes as JSON array.</div>
+    </div>
+    <button class="btn btn-secondary" id="parse-btn">Parse Envelope(s)</button>
+    <div id="envelope-info" class="hidden">
+      <div class="divider"></div>
+      <div id="envelope-list"></div>
+      <div class="divider"></div>
+      <div class="info-row"><span class="info-label">Total Inputs</span><span class="info-value" id="info-input-count"></span></div>
+      <div class="info-row"><span class="info-label">Total Value</span><span class="info-value" id="info-total-value"></span></div>
+    </div>
+    <div id="envelope-error" class="error-box hidden"></div>
+  </div>
+
+  <!-- Step 2: Private Key -->
+  <div class="section">
+    <div class="section-title"><span class="step-number">2</span>Enter Private Key</div>
+    <div class="danger-zone">
+      <label class="label">Private Key (WIF format)</label>
+      <input type="password" class="input" id="private-key" placeholder="Starts with K, L, or 5" autocomplete="off">
+      <div class="hint" style="color: var(--danger);">Never enter while online. Never share.</div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="show-key">
+        <label for="show-key">Show private key</label>
+      </div>
+    </div>
+    <div id="key-info" class="hidden">
+      <div class="info-row"><span class="info-label">Address</span><span class="info-value" id="key-address"></span></div>
+    </div>
+  </div>
+
+  <!-- Step 3: Destination -->
+  <div class="section">
+    <div class="section-title"><span class="step-number">3</span>Set Destination</div>
+    <div class="field">
+      <label class="label">Destination Address</label>
+      <input type="text" class="input" id="dest-address" placeholder="1... or 3...">
+    </div>
+    <div class="field">
+      <label class="label">Amount (BSV)</label>
+      <input type="text" class="input" id="amount" placeholder="0.001">
+      <div class="checkbox-row">
+        <input type="checkbox" id="send-all">
+        <label for="send-all">Send entire balance (minus fee)</label>
+      </div>
+    </div>
+    <div class="field">
+      <label class="label">Fee Rate</label>
+      <select class="input" id="fee-rate">
+        <option value="1" selected>1 sat/byte (~226 sats)</option>
+        <option value="2">2 sat/byte (~452 sats)</option>
+        <option value="5">5 sat/byte (~1130 sats)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Step 4: Sign -->
+  <div class="section">
+    <div class="section-title"><span class="step-number">4</span>Sign Transaction</div>
+    <button class="btn btn-sign" id="sign-btn">Sign Transaction</button>
+    
+    <div id="tx-result" class="hidden">
+      <div class="result-box">
+        <div class="result-title">Transaction Signed</div>
+        <div class="info-row"><span class="info-label">TXID</span><span class="info-value" id="result-txid"></span></div>
+        <div class="info-row"><span class="info-label">Size</span><span class="info-value" id="result-size"></span></div>
+        <div class="info-row"><span class="info-label">Fee</span><span class="info-value" id="result-fee"></span></div>
+        <div class="divider"></div>
+        <div class="field">
+          <label class="label">Signed Transaction (Raw Hex)</label>
+          <textarea class="input" id="result-hex" readonly style="min-height: 120px;"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="copy-btn">Copy to Clipboard</button>
+          <button class="btn btn-secondary" id="download-btn">Download</button>
+        </div>
+        <div class="divider"></div>
+        <div class="next-steps">
+          <div class="next-steps-title">Next Steps</div>
+          <ol class="next-steps-list">
+            <li>Copy or download the signed transaction above</li>
+            <li>Transfer to an online machine (USB drive recommended)</li>
+            <li>Broadcast at: <a href="https://whatsonchain.com/broadcast" target="_blank" rel="noopener">whatsonchain.com/broadcast</a></li>
+          </ol>
+          <div class="next-steps-warning">⚠ Broadcast promptly — transaction becomes invalid if inputs are spent elsewhere.</div>
+        </div>
+      </div>
+    </div>
+    <div id="tx-error" class="error-box hidden"></div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirm-modal" class="confirm-overlay hidden">
+    <div class="confirm-box">
+      <div class="confirm-title">Confirm Transaction</div>
+      <div class="confirm-row"><span class="info-label">To</span><span id="confirm-to" style="font-family: monospace; font-size: 0.8rem; word-break: break-all;"></span></div>
+      <div class="confirm-row"><span class="info-label">Amount</span><span id="confirm-amount"></span></div>
+      <div class="confirm-row"><span class="info-label">Fee</span><span id="confirm-fee"></span></div>
+      <div class="confirm-row"><span class="info-label">Change</span><span id="confirm-change"></span></div>
+      <div class="confirm-buttons">
+        <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-sign" id="confirm-sign">Sign & Create</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="generator.html">Generator</a> · <a href="verifier.html">Verifier</a> · Signer · <a href="tests.html">Tests</a>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    // ==========================================
+    // Constants
+    // ==========================================
+    const DUST_THRESHOLD = 546;
+    const P2PKH_INPUT_SIZE = 148;
+    const P2PKH_OUTPUT_SIZE = 34;
+    const TX_OVERHEAD = 10;
+
+    // ==========================================
+    // State
+    // ==========================================
+    let verifiedInputs = [];
+    let headerChain = null;
+    let chainHashIndex = null;
+    let pendingTx = null;
+
+    // ==========================================
+    // Network Status
+    // ==========================================
+    function updateNetworkStatus() {
+      const el = document.getElementById('network-status');
+      const text = document.getElementById('network-status-text');
+      const online = navigator.onLine;
+      el.className = 'status-bar ' + (online ? 'online' : 'offline');
+      text.textContent = online ? '⚠ ONLINE — Disconnect for security' : '✓ OFFLINE — Safe to enter key';
+    }
+
+    // ==========================================
+    // Header Chain Loading
+    // ==========================================
+    document.getElementById('headers-file').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const chainInfo = document.getElementById('chain-info');
+      const chainStatus = document.getElementById('chain-status');
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const result = verifyHeaderChain(bytes, CHECKPOINT);
+
+        headerChain = result;
+        chainHashIndex = result.hashIndex;
+
+        document.getElementById('chain-count').textContent = result.headers.length.toLocaleString();
+        document.getElementById('chain-tip').textContent = result.tipHeight.toLocaleString();
+
+        chainStatus.style.background = 'var(--success-bg)';
+        chainStatus.style.color = 'var(--success)';
+        
+        const startHeight = result.anchor.height + 1;
+        if (result.checkpointVerified) {
+          chainStatus.textContent = '✓ Chain verified from checkpoint';
+        } else {
+          chainStatus.textContent = '✓ Chain verified (blocks ' + startHeight + ' → ' + result.tipHeight + ')';
+        }
+
+        chainInfo.classList.remove('hidden');
+        document.getElementById('skip-chain').checked = false;
+
+      } catch (err) {
+        chainStatus.style.background = 'var(--danger-bg)';
+        chainStatus.style.color = 'var(--danger)';
+        chainStatus.textContent = '✗ ' + err.message;
+        chainInfo.classList.remove('hidden');
+        headerChain = null;
+        chainHashIndex = null;
+      }
+    });
+
+    // ==========================================
+    // Envelope Parsing
+    // ==========================================
+    document.getElementById('parse-btn').addEventListener('click', function() {
+      const input = document.getElementById('envelope-input').value.trim();
+      const errorDiv = document.getElementById('envelope-error');
+      const infoDiv = document.getElementById('envelope-info');
+      const listDiv = document.getElementById('envelope-list');
+
+      errorDiv.classList.add('hidden');
+      infoDiv.classList.add('hidden');
+      verifiedInputs = [];
+
+      try {
+        let envelopes = JSON.parse(input);
+        if (!Array.isArray(envelopes)) envelopes = [envelopes];
+
+        const seenUtxos = new Set();
+        let firstPubKeyHash = null;
+
+        for (let i = 0; i < envelopes.length; i++) {
+          const env = envelopes[i];
+
+          if (!env.txid || !env.rawTx) throw new Error('Input #' + (i+1) + ': Missing txid or rawTx');
+
+          const utxoKey = env.txid + ':' + (env.vout || 0);
+          if (seenUtxos.has(utxoKey)) throw new Error('Duplicate UTXO: ' + utxoKey);
+          seenUtxos.add(utxoKey);
+
+          // Verify txid matches rawTx
+          const computedTxid = reverseHex(bytesToHex(hash256(env.rawTx)));
+          if (computedTxid.toLowerCase() !== env.txid.toLowerCase()) {
+            throw new Error('Input #' + (i+1) + ': TXID mismatch');
+          }
+
+          // Get satoshis
+          const sats = env.satoshis || Math.round((env.value || 0) * 1e8);
+          if (sats <= 0) throw new Error('Input #' + (i+1) + ': Invalid value');
+
+          // Parse outputs to get scriptPubKey
+          const vout = env.vout || 0;
+          const outputs = parseOutputs(env.rawTx);
+          if (vout >= outputs.length) throw new Error('Input #' + (i+1) + ': vout out of range');
+
+          const script = outputs[vout].script;
+          const pubKeyHash = extractP2PKH(script);
+          if (!pubKeyHash) throw new Error('Input #' + (i+1) + ': Not P2PKH');
+
+          if (firstPubKeyHash === null) {
+            firstPubKeyHash = pubKeyHash;
+          } else if (pubKeyHash.toLowerCase() !== firstPubKeyHash.toLowerCase()) {
+            throw new Error('Input #' + (i+1) + ': Different address');
+          }
+
+          // Check chain verification
+          let status = 'No proof';
+          let chainVerified = false;
+          if (env.blockHeader && env.proof) {
+            status = '✓ Merkle verified';
+            if (chainHashIndex && !document.getElementById('skip-chain').checked) {
+              const blockHash = hashHeader(env.blockHeader);
+              if (chainHashIndex.has(blockHash.toLowerCase())) {
+                status = '✓ Chain verified';
+                chainVerified = true;
+              } else {
+                status = '! Not in chain';
+              }
+            }
+          }
+
+          verifiedInputs.push({
+            txid: env.txid,
+            vout: vout,
+            sats: sats,
+            scriptPubKey: script,
+            pubKeyHash: pubKeyHash,
+            status: status,
+            chainVerified: chainVerified
+          });
+        }
+
+        // Display
+        let html = '';
+        for (let i = 0; i < verifiedInputs.length; i++) {
+          const inp = verifiedInputs[i];
+          const color = inp.chainVerified ? 'var(--success); font-weight: 600' : 
+                       (inp.status.includes('✓') ? 'var(--success)' : 'var(--warning)');
+          html += '<div class="info-row">' +
+            '<span class="info-label">#' + (i+1) + ' ' + inp.txid.slice(0,8) + '...:' + inp.vout + '</span>' +
+            '<span class="info-value">' + (inp.sats / 1e8).toFixed(8) + ' BSV ' +
+            '<span style="color: ' + color + '; font-size: 0.8em;">(' + inp.status + ')</span></span></div>';
+        }
+        listDiv.innerHTML = html;
+
+        const total = verifiedInputs.reduce((s, i) => s + i.sats, 0);
+        document.getElementById('info-input-count').textContent = verifiedInputs.length;
+        document.getElementById('info-total-value').textContent = (total / 1e8).toFixed(8) + ' BSV';
+        infoDiv.classList.remove('hidden');
+
+      } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.classList.remove('hidden');
+      }
+    });
+
+    function parseOutputs(rawTxHex) {
+      const bytes = hexToBytes(rawTxHex);
+      let offset = 4; // skip version
+
+      // Skip inputs
+      const inputCount = bytes[offset++];
+      for (let i = 0; i < inputCount; i++) {
+        offset += 36; // prevout
+        const scriptLen = bytes[offset++];
+        offset += scriptLen + 4; // script + sequence
+      }
+
+      // Parse outputs
+      const outputCount = bytes[offset++];
+      const outputs = [];
+      for (let i = 0; i < outputCount; i++) {
+        const value = Number(readUInt64LE(bytesToHex(bytes), offset));
+        offset += 8;
+        const scriptLen = bytes[offset++];
+        const script = bytesToHex(bytes.slice(offset, offset + scriptLen));
+        offset += scriptLen;
+        outputs.push({ value, script });
+      }
+      return outputs;
+    }
+
+    function extractP2PKH(script) {
+      // P2PKH: 76a914{20 bytes}88ac
+      if (script.length === 50 && script.startsWith('76a914') && script.endsWith('88ac')) {
+        return script.slice(6, 46);
+      }
+      return null;
+    }
+
+    // ==========================================
+    // Private Key Handling
+    // ==========================================
+    document.getElementById('show-key').addEventListener('change', function() {
+      document.getElementById('private-key').type = this.checked ? 'text' : 'password';
+    });
+
+    document.getElementById('private-key').addEventListener('input', function() {
+      const keyInfo = document.getElementById('key-info');
+      const wif = this.value.trim();
+
+      if (!wif) {
+        keyInfo.classList.add('hidden');
+        return;
+      }
+
+      try {
+        const { privateKey, compressed } = SECP256K1.wifToPrivateKey(wif);
+        const pubKey = SECP256K1.getPublicKey(privateKey, compressed);
+        const pubKeyHash = bytesToHex(hash160(pubKey));
+        const address = base58CheckEncode(0x00, pubKeyHash);
+
+        document.getElementById('key-address').textContent = address;
+        keyInfo.classList.remove('hidden');
+
+        // Check if it matches envelope inputs
+        if (verifiedInputs.length > 0 && verifiedInputs[0].pubKeyHash.toLowerCase() !== pubKeyHash.toLowerCase()) {
+          keyInfo.innerHTML += '<div style="color: var(--danger); margin-top: 8px;">⚠ Key does not match envelope inputs</div>';
+        }
+
+      } catch (err) {
+        keyInfo.classList.add('hidden');
+      }
+    });
+
+    // ==========================================
+    // Send All Toggle
+    // ==========================================
+    document.getElementById('send-all').addEventListener('change', function() {
+      document.getElementById('amount').disabled = this.checked;
+      if (this.checked) {
+        document.getElementById('amount').value = '';
+        document.getElementById('amount').placeholder = 'Entire balance';
+      } else {
+        document.getElementById('amount').placeholder = '0.001';
+      }
+    });
+
+    // ==========================================
+    // Sign Transaction
+    // ==========================================
+    document.getElementById('sign-btn').addEventListener('click', function() {
+      const errorDiv = document.getElementById('tx-error');
+      errorDiv.classList.add('hidden');
+
+      try {
+        // Validate inputs
+        if (verifiedInputs.length === 0) throw new Error('Load envelopes first');
+
+        const wif = document.getElementById('private-key').value.trim();
+        if (!wif) throw new Error('Enter private key');
+
+        const { privateKey, compressed } = SECP256K1.wifToPrivateKey(wif);
+        const pubKey = SECP256K1.getPublicKey(privateKey, compressed);
+        const pubKeyHash = bytesToHex(hash160(pubKey));
+
+        // Verify key matches inputs
+        if (verifiedInputs[0].pubKeyHash.toLowerCase() !== pubKeyHash.toLowerCase()) {
+          throw new Error('Private key does not match envelope inputs');
+        }
+
+        const destAddress = document.getElementById('dest-address').value.trim();
+        if (!destAddress) throw new Error('Enter destination address');
+
+        const destDecoded = base58CheckDecode(destAddress);
+        if (destDecoded.version !== 0x00 && destDecoded.version !== 0x05) {
+          throw new Error('Invalid address version');
+        }
+        const destHash = bytesToHex(destDecoded.hash);
+
+        const totalInput = verifiedInputs.reduce((s, i) => s + i.sats, 0);
+        const feeRate = parseInt(document.getElementById('fee-rate').value);
+        const sendAll = document.getElementById('send-all').checked;
+
+        // Estimate size
+        const estSize = TX_OVERHEAD + (verifiedInputs.length * P2PKH_INPUT_SIZE) + (sendAll ? P2PKH_OUTPUT_SIZE : P2PKH_OUTPUT_SIZE * 2);
+        const fee = estSize * feeRate;
+
+        let sendAmount;
+        if (sendAll) {
+          sendAmount = totalInput - fee;
+          if (sendAmount < DUST_THRESHOLD) throw new Error('Balance too low after fee');
+        } else {
+          const amountStr = document.getElementById('amount').value.trim();
+          if (!amountStr) throw new Error('Enter amount');
+          sendAmount = Math.round(parseFloat(amountStr) * 1e8);
+          if (isNaN(sendAmount) || sendAmount < DUST_THRESHOLD) throw new Error('Amount too small');
+          if (sendAmount + fee > totalInput) throw new Error('Insufficient funds');
+        }
+
+        const change = sendAll ? 0 : (totalInput - sendAmount - fee);
+
+        // Store pending transaction
+        pendingTx = {
+          privateKey, pubKey, pubKeyHash, destHash,
+          sendAmount, fee, change, feeRate
+        };
+
+        // Show confirmation
+        document.getElementById('confirm-to').textContent = destAddress;
+        document.getElementById('confirm-amount').textContent = (sendAmount / 1e8).toFixed(8) + ' BSV';
+        document.getElementById('confirm-fee').textContent = fee + ' sats';
+        document.getElementById('confirm-change').textContent = change > 0 ? (change / 1e8).toFixed(8) + ' BSV' : 'None (send all)';
+        document.getElementById('confirm-modal').classList.remove('hidden');
+
+      } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.classList.remove('hidden');
+      }
+    });
+
+    document.getElementById('confirm-cancel').addEventListener('click', function() {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      pendingTx = null;
+    });
+
+    document.getElementById('confirm-sign').addEventListener('click', function() {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      createSignedTransaction();
+    });
+
+    function createSignedTransaction() {
+      const { privateKey, pubKey, pubKeyHash, destHash, sendAmount, fee, change } = pendingTx;
+
+      // Build outputs
+      let outputsHex = '';
+      let outputCount = 0;
+
+      // Destination output
+      outputsHex += writeUInt64LE(sendAmount);
+      outputsHex += varInt(25);
+      outputsHex += '76a914' + destHash + '88ac';
+      outputCount++;
+
+      // Change output
+      if (change >= DUST_THRESHOLD) {
+        outputsHex += writeUInt64LE(change);
+        outputsHex += varInt(25);
+        outputsHex += '76a914' + pubKeyHash + '88ac';
+        outputCount++;
+      }
+
+      // Prepare inputs for sighash
+      const inputs = verifiedInputs.map(inp => ({
+        txid: inp.txid,
+        vout: inp.vout,
+        pubKeyHash: inp.pubKeyHash,
+        satoshis: inp.sats
+      }));
+
+      // Compute shared sighash components
+      const components = computeSighashComponents(inputs, outputsHex);
+
+      // Sign each input
+      const signatures = [];
+      for (const input of inputs) {
+        const sighashHex = computeSighash(input, components, 1, 0);
+        const sig = SECP256K1.sign(sighashHex, privateKey);
+        const derSig = SECP256K1.signatureToDER(sig.r, sig.s) + '41'; // + SIGHASH_ALL|FORKID
+        signatures.push(derSig);
+      }
+
+      // Build raw transaction
+      let rawTx = writeUInt32LE(1); // version
+      rawTx += varInt(inputs.length);
+
+      for (let i = 0; i < inputs.length; i++) {
+        rawTx += reverseHex(inputs[i].txid);
+        rawTx += writeUInt32LE(inputs[i].vout);
+        const scriptSig = varInt(signatures[i].length / 2) + signatures[i] +
+                         varInt(pubKey.length / 2) + pubKey;
+        rawTx += varInt(scriptSig.length / 2) + scriptSig;
+        rawTx += 'ffffffff'; // sequence
+      }
+
+      rawTx += varInt(outputCount);
+      rawTx += outputsHex;
+      rawTx += writeUInt32LE(0); // locktime
+
+      const txid = reverseHex(bytesToHex(hash256(rawTx)));
+
+      // Display result
+      document.getElementById('result-txid').textContent = txid;
+      document.getElementById('result-size').textContent = (rawTx.length / 2) + ' bytes';
+      document.getElementById('result-fee').textContent = fee + ' sats (' + pendingTx.feeRate + ' sat/byte)';
+      document.getElementById('result-hex').value = rawTx;
+      document.getElementById('tx-result').classList.remove('hidden');
+
+      pendingTx = null;
+    }
+
+    // ==========================================
+    // Copy & Download
+    // ==========================================
+    document.getElementById('copy-btn').addEventListener('click', function() {
+      const hex = document.getElementById('result-hex').value;
+      navigator.clipboard.writeText(hex).then(() => {
+        this.textContent = '✓ Copied!';
+        setTimeout(() => this.textContent = 'Copy to Clipboard', 2000);
+      });
+    });
+
+    document.getElementById('download-btn').addEventListener('click', function() {
+      const hex = document.getElementById('result-hex').value;
+      const txid = document.getElementById('result-txid').textContent;
+      const blob = new Blob([hex], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'signed-tx-' + txid.slice(0, 8) + '.txt';
+      a.click();
+    });
+
+    // ==========================================
+    // Init
+    // ==========================================
+    updateNetworkStatus();
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+
+  })();
+  </script>
+</body>
+</html>
