@@ -162,8 +162,8 @@ This checkpoint is a trust anchor. If incorrect, header chain verification provi
 **Why block 880,000:** Recent enough to minimize headers needed for current transactions, old enough to have deep confirmation (56,000+ blocks).
 
 **To independently verify:**
-1. Query multiple block explorers (whatsonchain.com, blockchair.com, bsvexplorer.io)
-2. Query your own node: `bitcoin-cli getblockhash 880000`
+1. Query multiple block explorers (whatsonchain.com, blockchair.com/bitcoin-sv)
+2. Query your own BSV node: `bitcoin-cli getblockhash 880000`
 3. Compare against the hash in `lib/headers.js`
 
 If sources disagree, do not use this tool until resolved.
@@ -348,7 +348,7 @@ Alternatives to WhatsOnChain:
 
 ## Audit Status
 
-⚠️ **This code has not been independently audited.**
+**This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
