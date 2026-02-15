@@ -9,11 +9,11 @@ Offline BSV transaction signing with Merkle proof verification.
 
 ## What This Tool Does
 
-Merkle Envelope Tools implements SPV (Simplified Payment Verification) as described in Bitcoin Whitepaper §8:
+Merkle Envelope Tools implements the Merkle proof verification and Proof-of-Work validation components of SPV (Simplified Payment Verification). It does not implement peer discovery or longest-chain comparison.
 
 1. **Generate cryptographic proof bundles** — Package a UTXO with its raw transaction, Merkle proof, and block header
 2. **Verify proofs offline** — Confirm transaction inclusion via Merkle proof and block validity via PoW
-3. **Sign transactions air-gapped** — Private keys never touch a networked device
+3. **Sign transactions air-gapped** — Designed so private keys need not touch a networked device when the documented workflow is followed
 4. **Optionally verify header chains** — Download and verify block headers to confirm UTXOs exist in blocks with cumulative proof-of-work
 
 The envelope format packages everything needed to verify a UTXO: raw transaction, Merkle proof, block header. Self-contained and portable.
@@ -157,9 +157,9 @@ The tool anchors header chain verification to block 880,000:
 hash: 0000000000000000067ef53e9c4bf1297d0860a36b81b0e03ad0be6fb719788d
 ```
 
-This checkpoint is a trust anchor. If incorrect, header chain verification provides no security.
+**This checkpoint is an unverified trust anchor.** The tool cannot validate it independently. If this hash is incorrect or has been tampered with, all header chain verification is compromised. Users must verify this checkpoint through external sources before relying on header chain verification.
 
-**Why block 880,000:** Recent enough to minimize headers needed for current transactions, old enough to have deep confirmation (56,000+ blocks).
+**Why block 880,000:** Recent enough to minimize headers needed for current transactions, old enough to have deep confirmation (56,000+ blocks as of January 2025).
 
 **To independently verify:**
 1. Query multiple block explorers (whatsonchain.com, blockchair.com/bitcoin-sv)
@@ -178,7 +178,7 @@ If sources disagree, do not use this tool until resolved.
 
 | Threat | Protection |
 |--------|------------|
-| Remote key theft | Private key never on networked device |
+| Remote key theft | Workflow designed to keep private key off networked devices |
 | Malicious API responses | All envelope data cryptographically verified |
 | Fake transaction proofs | Merkle proof validated against block header |
 | Fake block headers | Must meet PoW difficulty target |
@@ -348,7 +348,7 @@ Alternatives to WhatsOnChain:
 
 ## Audit Status
 
-**This code has not been independently audited.**
+⚠️ **This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -356,7 +356,17 @@ Review the source before use with significant funds. The test suite validates cr
 
 ## License
 
-MIT License — Use at your own risk.
+MIT License
+
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
+
+This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 
 ---
 
