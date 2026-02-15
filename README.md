@@ -49,7 +49,7 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ┌─────────────────────────────────────────────────────────────┐
 │  OFFLINE: Sign Transaction                                  │
 │  1. Open signer.html (disconnect from internet first)       │
-│  2. Load headers.bin (optional, for header chain verification) │
+│  2. Load headers.bin optional,for header chain verification │
 │  3. Load envelope(s)                                        │
 │  4. Enter WIF private key                                   │
 │  5. Set destination address and amount                      │
@@ -348,7 +348,7 @@ Alternatives to WhatsOnChain:
 
 ## Audit Status
 
-⚠️ **This code has not been independently audited.**
+**This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
