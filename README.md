@@ -134,7 +134,7 @@ Signs transactions using verified Merkle envelopes as proof of funds.
 
 ### tests.html (Offline)
 
-Cryptographic test suite with 38 test vectors across SHA-256, RIPEMD-160, secp256k1, Base58Check, Merkle proofs, and PoW validation.
+Cryptographic test suite with 42 test vectors across SHA-256, RIPEMD-160, secp256k1, Base58Check, Merkle proofs, and PoW validation.
 
 Run before use to verify cryptographic integrity.
 
