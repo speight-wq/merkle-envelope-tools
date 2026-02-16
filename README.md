@@ -49,7 +49,7 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ┌─────────────────────────────────────────────────────────────┐
 │  OFFLINE: Sign Transaction                                  │
 │  1. Open signer.html (disconnect from internet first)       │
-│  2. Load headers.bin optional,for header chain verification │
+│  2. Load headers.bin (optional, for header chain verification) │
 │  3. Load envelope(s)                                        │
 │  4. Enter WIF private key                                   │
 │  5. Set destination address and amount                      │
@@ -194,6 +194,14 @@ See [Limitations](#limitations) for threats this tool does not protect against.
 - Maximum satoshi validation — Prevents integer overflow (21M BSV cap)
 - Signature self-verification — Verifies signatures before output
 - P2PKH script validation — Explicitly validates output script format
+- Strict type validation — No implicit coercion on envelope fields
+- BigInt arithmetic — All satoshi calculations use BigInt
+- Constant-time comparison — Hash comparisons resist timing attacks
+- Duplicate outpoint detection — Rejects multi-input with same UTXO
+- Fee sanity bounds — Rejects fees >10% of input value
+- Merkle proof depth limit — Rejects proofs >64 levels (DoS protection)
+- Immutable structures — Parsed envelopes frozen after validation
+- Content Security Policy — All pages include CSP headers
 
 See [THREAT-MODEL.md](THREAT-MODEL.md) for complete analysis.
 
@@ -238,15 +246,15 @@ The format works with any API providing raw transaction hex, Merkle proof, and b
 | File | SHA-256 |
 |------|---------|
 | lib/crypto.js | `b2a91262f01994555e5e713cccb9d607c29b48ac5725f9bbce10df084ead0ab2` |
-| lib/encoding.js | `f7cc8cf3c854b9334f6fd0f02cf2b21ef743169958c39748df6a6f02c31dfa1a` |
+| lib/encoding.js | `22ea32359c2fd34aa9e421d99a2386f200e861bc7a364709745476d4091f57c1` |
 | lib/secp256k1.js | `fc2d03baff7e802a8aed8e49a59c6b044089f9f585e1a1c9fe281b73da0e3e2b` |
 | lib/sighash.js | `297151d898312ac0287abac527902ab4dec22804bbe1b782d4785bbbe789892f` |
-| lib/headers.js | `1be47fd869122861d6c40ca8d7935a0a0cafe2e091ae637761bc7e7f998da581` |
-| generator.html | `9f8a0f0bd68948b6281f6fab4681a6aaac339d3f28a242ce24995813391fbfa2` |
-| headers-generator.html | `f8f16253112cb7f110224b8ed078c61b943bf675501434242126e6b934b9f381` |
-| verifier.html | `f5fa8d4a53554978e9c3e029d25e9aaa4f0871a6d65f19029a6e95561dd26479` |
-| signer.html | `7904b3af15b352754e27727eb83c6ad109386eac3a59d4035a86b103ae5ead3e` |
-| tests.html | `e21711908ad1a83af2e3ffe999382117c293ee58097c777aabe2d7daf9fb4688` |
+| lib/headers.js | `9d515bfd07591e4499ccff54e0b39b2a48587aafac64c40c630b79147d44efb4` |
+| generator.html | `f6384a48761b44e4177907bf4d91f8874f048116e9b9c0b970ca4e5189eb3c8c` |
+| headers-generator.html | `deef130a41ab70141ba96070764ed45de65112978443c2240716adafcdf93ae1` |
+| verifier.html | `3258fb9c69ac95e390756527082062fb520bafea6ee5dd7e1061170176a4c0d5` |
+| signer.html | `f818018f082a60aab47082dbb3903764e494a9c9422050a2462f2920c579e7ad` |
+| tests.html | `578049d5d7c26eaf05a2282216443208211ad0230dd454fd3ab19f2091b41929` |
 
 ### How to Verify
 
@@ -348,7 +356,7 @@ Alternatives to WhatsOnChain:
 
 ## Audit Status
 
-**This code has not been independently audited.**
+⚠️ **This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -364,7 +372,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 

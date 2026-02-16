@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'none';">
   <title>Offline Transaction Signer — Merkle Envelope Tools</title>
   <script src="lib/crypto.js"></script>
   <script src="lib/encoding.js"></script>
@@ -226,10 +227,84 @@
     // ==========================================
     // Constants
     // ==========================================
-    const DUST_THRESHOLD = 546;
-    const P2PKH_INPUT_SIZE = 148;
-    const P2PKH_OUTPUT_SIZE = 34;
-    const TX_OVERHEAD = 10;
+    const DUST_THRESHOLD = 546n;
+    const P2PKH_INPUT_SIZE = 148n;
+    const P2PKH_OUTPUT_SIZE = 34n;
+    const TX_OVERHEAD = 10n;
+    const MAX_SATOSHIS = 2100000000000000n; // 21M BSV cap
+    const MAX_FEE_PERCENT = 10n; // Reject fees > 10% of input value
+    const MIN_FEE_RATE = 1n; // Minimum 1 sat/byte
+
+    // ==========================================
+    // Validation Utilities
+    // ==========================================
+    
+    /**
+     * Strict type validation for envelope fields
+     * Mitigates: Type confusion, prototype pollution, implicit coercion
+     */
+    function validateEnvelope(env, index) {
+      const prefix = 'Input #' + (index + 1) + ': ';
+      
+      // txid: must be 64-char lowercase hex
+      if (typeof env.txid !== 'string') throw new Error(prefix + 'txid must be string');
+      if (!isValidHex(env.txid) || env.txid.length !== 64) {
+        throw new Error(prefix + 'txid must be 64 hex characters');
+      }
+      
+      // rawTx: must be valid hex, minimum length for any tx
+      if (typeof env.rawTx !== 'string') throw new Error(prefix + 'rawTx must be string');
+      if (!isValidHex(env.rawTx) || env.rawTx.length < 20) {
+        throw new Error(prefix + 'rawTx invalid hex');
+      }
+      
+      // vout: must be non-negative integer
+      const vout = env.vout;
+      if (vout !== undefined && vout !== null) {
+        if (typeof vout !== 'number' || !Number.isInteger(vout) || vout < 0) {
+          throw new Error(prefix + 'vout must be non-negative integer');
+        }
+      }
+      
+      // satoshis: must be positive integer within range
+      let satoshis = null;
+      if (env.satoshis !== undefined && env.satoshis !== null) {
+        if (typeof env.satoshis !== 'number' || !Number.isInteger(env.satoshis)) {
+          throw new Error(prefix + 'satoshis must be integer');
+        }
+        satoshis = BigInt(env.satoshis);
+      } else if (env.value !== undefined && env.value !== null) {
+        if (typeof env.value !== 'number' || !Number.isFinite(env.value)) {
+          throw new Error(prefix + 'value must be finite number');
+        }
+        satoshis = BigInt(Math.round(env.value * 1e8));
+      }
+      if (satoshis !== null && (satoshis <= 0n || satoshis > MAX_SATOSHIS)) {
+        throw new Error(prefix + 'satoshis out of valid range');
+      }
+      
+      // blockHeader: if present, must be 160 hex chars (80 bytes)
+      if (env.blockHeader !== undefined && env.blockHeader !== null) {
+        if (typeof env.blockHeader !== 'string') throw new Error(prefix + 'blockHeader must be string');
+        if (!isValidHex(env.blockHeader) || env.blockHeader.length !== 160) {
+          throw new Error(prefix + 'blockHeader must be 160 hex characters');
+        }
+      }
+      
+      // proof: if present, must be array
+      if (env.proof !== undefined && env.proof !== null) {
+        if (!Array.isArray(env.proof)) throw new Error(prefix + 'proof must be array');
+      }
+      
+      return Object.freeze({
+        txid: env.txid.toLowerCase(),
+        rawTx: env.rawTx.toLowerCase(),
+        vout: (vout !== undefined && vout !== null) ? vout : 0,
+        satoshis: satoshis,
+        blockHeader: env.blockHeader ? env.blockHeader.toLowerCase() : null,
+        proof: env.proof ? Object.freeze(env.proof.map(p => Object.freeze({...p}))) : null
+      });
+    }
 
     // ==========================================
     // State
@@ -308,51 +383,90 @@
       verifiedInputs = [];
 
       try {
-        let envelopes = JSON.parse(input);
+        let envelopes;
+        try {
+          envelopes = JSON.parse(input);
+        } catch (e) {
+          throw new Error('Invalid JSON: ' + e.message);
+        }
         if (!Array.isArray(envelopes)) envelopes = [envelopes];
+        if (envelopes.length === 0) throw new Error('No envelopes provided');
 
         const seenUtxos = new Set();
         let firstPubKeyHash = null;
 
         for (let i = 0; i < envelopes.length; i++) {
-          const env = envelopes[i];
+          // 1. Strict type validation
+          const env = validateEnvelope(envelopes[i], i);
 
-          if (!env.txid || !env.rawTx) throw new Error('Input #' + (i+1) + ': Missing txid or rawTx');
-
-          const utxoKey = env.txid + ':' + (env.vout || 0);
-          if (seenUtxos.has(utxoKey)) throw new Error('Duplicate UTXO: ' + utxoKey);
+          // 4. Duplicate outpoint detection
+          const utxoKey = env.txid + ':' + env.vout;
+          if (seenUtxos.has(utxoKey)) {
+            throw new Error('Duplicate UTXO detected: ' + utxoKey);
+          }
           seenUtxos.add(utxoKey);
 
-          // Verify txid matches rawTx
+          // 9. Constant-time TXID verification
           const computedTxid = reverseHex(bytesToHex(hash256(env.rawTx)));
-          if (computedTxid.toLowerCase() !== env.txid.toLowerCase()) {
-            throw new Error('Input #' + (i+1) + ': TXID mismatch');
+          if (!constantTimeEqual(computedTxid.toLowerCase(), env.txid)) {
+            throw new Error('Input #' + (i+1) + ': TXID mismatch (possible tampering)');
           }
 
-          // Get satoshis
-          const sats = env.satoshis || Math.round((env.value || 0) * 1e8);
-          if (sats <= 0) throw new Error('Input #' + (i+1) + ': Invalid value');
-
-          // Parse outputs to get scriptPubKey
-          const vout = env.vout || 0;
+          // Parse outputs to get value and scriptPubKey
           const outputs = parseOutputs(env.rawTx);
-          if (vout >= outputs.length) throw new Error('Input #' + (i+1) + ': vout out of range');
+          if (env.vout >= outputs.length) {
+            throw new Error('Input #' + (i+1) + ': vout out of range');
+          }
 
-          const script = outputs[vout].script;
+          // 2. Use BigInt for satoshi value
+          const parsedSats = outputs[env.vout].value;
+          let sats;
+          if (env.satoshis !== null) {
+            // Verify envelope value matches parsed value
+            if (env.satoshis !== parsedSats) {
+              throw new Error('Input #' + (i+1) + ': satoshis mismatch with rawTx');
+            }
+            sats = env.satoshis;
+          } else {
+            sats = parsedSats;
+          }
+          
+          if (sats <= 0n || sats > MAX_SATOSHIS) {
+            throw new Error('Input #' + (i+1) + ': Invalid satoshi value');
+          }
+
+          const script = outputs[env.vout].script;
           const pubKeyHash = extractP2PKH(script);
           if (!pubKeyHash) throw new Error('Input #' + (i+1) + ': Not P2PKH');
 
+          // Same-key validation
           if (firstPubKeyHash === null) {
             firstPubKeyHash = pubKeyHash;
-          } else if (pubKeyHash.toLowerCase() !== firstPubKeyHash.toLowerCase()) {
-            throw new Error('Input #' + (i+1) + ': Different address');
+          } else if (!constantTimeEqual(pubKeyHash.toLowerCase(), firstPubKeyHash.toLowerCase())) {
+            throw new Error('Input #' + (i+1) + ': Different address (same-key required)');
           }
 
-          // Check chain verification
+          // Verify Merkle proof if present
           let status = 'No proof';
           let chainVerified = false;
           if (env.blockHeader && env.proof) {
+            // Verify PoW
+            if (!verifyPoW(env.blockHeader)) {
+              throw new Error('Input #' + (i+1) + ': Invalid block PoW');
+            }
+            
+            // Verify Merkle proof
+            const header = parseHeader(env.blockHeader);
+            if (!checkMerkleProofSafe(env.proof)) {
+              throw new Error('Input #' + (i+1) + ': Merkle proof has duplicate nodes (CVE-2012-2459)');
+            }
+            if (!verifyMerkleProof(env.txid, env.proof, header.merkleRoot)) {
+              throw new Error('Input #' + (i+1) + ': Merkle proof invalid');
+            }
+            
             status = '✓ Merkle verified';
+            
+            // Check header chain if loaded
             if (chainHashIndex && !document.getElementById('skip-chain').checked) {
               const blockHash = hashHeader(env.blockHeader);
               if (chainHashIndex.has(blockHash.toLowerCase())) {
@@ -364,15 +478,16 @@
             }
           }
 
-          verifiedInputs.push({
+          // 7. Freeze verified input object
+          verifiedInputs.push(Object.freeze({
             txid: env.txid,
-            vout: vout,
+            vout: env.vout,
             sats: sats,
             scriptPubKey: script,
             pubKeyHash: pubKeyHash,
             status: status,
             chainVerified: chainVerified
-          });
+          }));
         }
 
         // Display
@@ -381,16 +496,18 @@
           const inp = verifiedInputs[i];
           const color = inp.chainVerified ? 'var(--success); font-weight: 600' : 
                        (inp.status.includes('✓') ? 'var(--success)' : 'var(--warning)');
+          const displaySats = Number(inp.sats) / 1e8;
           html += '<div class="info-row">' +
             '<span class="info-label">#' + (i+1) + ' ' + inp.txid.slice(0,8) + '...:' + inp.vout + '</span>' +
-            '<span class="info-value">' + (inp.sats / 1e8).toFixed(8) + ' BSV ' +
+            '<span class="info-value">' + displaySats.toFixed(8) + ' BSV ' +
             '<span style="color: ' + color + '; font-size: 0.8em;">(' + inp.status + ')</span></span></div>';
         }
         listDiv.innerHTML = html;
 
-        const total = verifiedInputs.reduce((s, i) => s + i.sats, 0);
+        const total = verifiedInputs.reduce((s, i) => s + i.sats, 0n);
+        const displayTotal = Number(total) / 1e8;
         document.getElementById('info-input-count').textContent = verifiedInputs.length;
-        document.getElementById('info-total-value').textContent = (total / 1e8).toFixed(8) + ' BSV';
+        document.getElementById('info-total-value').textContent = displayTotal.toFixed(8) + ' BSV';
         infoDiv.classList.remove('hidden');
 
       } catch (err) {
@@ -411,11 +528,11 @@
         offset += scriptLen + 4; // script + sequence
       }
 
-      // Parse outputs
+      // Parse outputs - use BigInt for values
       const outputCount = bytes[offset++];
       const outputs = [];
       for (let i = 0; i < outputCount; i++) {
-        const value = Number(readUInt64LE(bytesToHex(bytes), offset));
+        const value = readUInt64LE(bytesToHex(bytes), offset);
         offset += 8;
         const scriptLen = bytes[offset++];
         const script = bytesToHex(bytes.slice(offset, offset + scriptLen));
@@ -458,8 +575,9 @@
         document.getElementById('key-address').textContent = address;
         keyInfo.classList.remove('hidden');
 
-        // Check if it matches envelope inputs
-        if (verifiedInputs.length > 0 && verifiedInputs[0].pubKeyHash.toLowerCase() !== pubKeyHash.toLowerCase()) {
+        // Check if it matches envelope inputs (constant-time comparison)
+        if (verifiedInputs.length > 0 && 
+            !constantTimeEqual(verifiedInputs[0].pubKeyHash.toLowerCase(), pubKeyHash.toLowerCase())) {
           keyInfo.innerHTML += '<div style="color: var(--danger); margin-top: 8px;">⚠ Key does not match envelope inputs</div>';
         }
 
@@ -499,8 +617,8 @@
         const pubKey = SECP256K1.getPublicKey(privateKey, compressed);
         const pubKeyHash = bytesToHex(hash160(pubKey));
 
-        // Verify key matches inputs
-        if (verifiedInputs[0].pubKeyHash.toLowerCase() !== pubKeyHash.toLowerCase()) {
+        // 9. Constant-time key verification
+        if (!constantTimeEqual(verifiedInputs[0].pubKeyHash.toLowerCase(), pubKeyHash.toLowerCase())) {
           throw new Error('Private key does not match envelope inputs');
         }
 
@@ -513,13 +631,30 @@
         }
         const destHash = bytesToHex(destDecoded.hash);
 
-        const totalInput = verifiedInputs.reduce((s, i) => s + i.sats, 0);
-        const feeRate = parseInt(document.getElementById('fee-rate').value);
+        // 2. All value calculations in BigInt
+        const totalInput = verifiedInputs.reduce((s, i) => s + i.sats, 0n);
+        const feeRate = BigInt(parseInt(document.getElementById('fee-rate').value));
         const sendAll = document.getElementById('send-all').checked;
 
-        // Estimate size
-        const estSize = TX_OVERHEAD + (verifiedInputs.length * P2PKH_INPUT_SIZE) + (sendAll ? P2PKH_OUTPUT_SIZE : P2PKH_OUTPUT_SIZE * 2);
+        // Validate total doesn't exceed cap
+        if (totalInput > MAX_SATOSHIS) {
+          throw new Error('Total input exceeds 21M BSV cap');
+        }
+
+        // Estimate size and fee
+        const estSize = TX_OVERHEAD + (BigInt(verifiedInputs.length) * P2PKH_INPUT_SIZE) + 
+                       (sendAll ? P2PKH_OUTPUT_SIZE : P2PKH_OUTPUT_SIZE * 2n);
         const fee = estSize * feeRate;
+
+        // 6. Fee sanity checks
+        if (feeRate < MIN_FEE_RATE) {
+          throw new Error('Fee rate below minimum (' + MIN_FEE_RATE + ' sat/byte)');
+        }
+        
+        const maxFee = (totalInput * MAX_FEE_PERCENT) / 100n;
+        if (fee > maxFee) {
+          throw new Error('Fee exceeds ' + MAX_FEE_PERCENT + '% of input value');
+        }
 
         let sendAmount;
         if (sendAll) {
@@ -528,12 +663,16 @@
         } else {
           const amountStr = document.getElementById('amount').value.trim();
           if (!amountStr) throw new Error('Enter amount');
-          sendAmount = Math.round(parseFloat(amountStr) * 1e8);
-          if (isNaN(sendAmount) || sendAmount < DUST_THRESHOLD) throw new Error('Amount too small');
+          const amountFloat = parseFloat(amountStr);
+          if (!Number.isFinite(amountFloat) || amountFloat <= 0) {
+            throw new Error('Invalid amount');
+          }
+          sendAmount = BigInt(Math.round(amountFloat * 1e8));
+          if (sendAmount < DUST_THRESHOLD) throw new Error('Amount below dust threshold');
           if (sendAmount + fee > totalInput) throw new Error('Insufficient funds');
         }
 
-        const change = sendAll ? 0 : (totalInput - sendAmount - fee);
+        const change = sendAll ? 0n : (totalInput - sendAmount - fee);
 
         // Store pending transaction
         pendingTx = {
@@ -543,9 +682,9 @@
 
         // Show confirmation
         document.getElementById('confirm-to').textContent = destAddress;
-        document.getElementById('confirm-amount').textContent = (sendAmount / 1e8).toFixed(8) + ' BSV';
-        document.getElementById('confirm-fee').textContent = fee + ' sats';
-        document.getElementById('confirm-change').textContent = change > 0 ? (change / 1e8).toFixed(8) + ' BSV' : 'None (send all)';
+        document.getElementById('confirm-amount').textContent = (Number(sendAmount) / 1e8).toFixed(8) + ' BSV';
+        document.getElementById('confirm-fee').textContent = fee.toString() + ' sats';
+        document.getElementById('confirm-change').textContent = change > 0n ? (Number(change) / 1e8).toFixed(8) + ' BSV' : 'None (send all)';
         document.getElementById('confirm-modal').classList.remove('hidden');
 
       } catch (err) {
@@ -577,7 +716,7 @@
       outputsHex += '76a914' + destHash + '88ac';
       outputCount++;
 
-      // Change output
+      // Change output (use BigInt comparison)
       if (change >= DUST_THRESHOLD) {
         outputsHex += writeUInt64LE(change);
         outputsHex += varInt(25);
@@ -596,13 +735,21 @@
       // Compute shared sighash components
       const components = computeSighashComponents(inputs, outputsHex);
 
-      // Sign each input
+      // Sign each input with self-verification
       const signatures = [];
-      for (const input of inputs) {
+      for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
         const sighashHex = computeSighash(input, components, 1, 0);
         const sig = SECP256K1.sign(sighashHex, privateKey);
-        const derSig = SECP256K1.signatureToDER(sig.r, sig.s) + '41'; // + SIGHASH_ALL|FORKID
-        signatures.push(derSig);
+        const derSig = SECP256K1.signatureToDER(sig.r, sig.s);
+        
+        // 3. Signature self-verification before output
+        // Mitigates: Signing implementation bugs, invalid signatures
+        if (!SECP256K1.verify(sighashHex, derSig, pubKey)) {
+          throw new Error('Signature self-verification failed for input ' + i);
+        }
+        
+        signatures.push(derSig + '41'); // + SIGHASH_ALL|FORKID
       }
 
       // Build raw transaction
@@ -627,7 +774,7 @@
       // Display result
       document.getElementById('result-txid').textContent = txid;
       document.getElementById('result-size').textContent = (rawTx.length / 2) + ' bytes';
-      document.getElementById('result-fee').textContent = fee + ' sats (' + pendingTx.feeRate + ' sat/byte)';
+      document.getElementById('result-fee').textContent = fee.toString() + ' sats (' + pendingTx.feeRate + ' sat/byte)';
       document.getElementById('result-hex').value = rawTx;
       document.getElementById('tx-result').classList.remove('hidden');
 
