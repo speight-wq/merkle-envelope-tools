@@ -23,7 +23,6 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ## What This Tool Does NOT Do
 
 - **Does not sync the blockchain** — Uses pre-generated proofs, not live chain data
-- **Does not query multiple sources** — Envelope generation and header download use WhatsOnChain API only; no cross-validation against other nodes or APIs
 - **Does not discover longest chain** — Verifies headers form a valid PoW chain from checkpoint; does not compare chain tips across multiple sources to determine longest chain as described in Bitcoin Whitepaper §8
 - **Does not protect against compromised offline machines** — If attacker has code execution, keys are exposed
 - **Does not guarantee constant-time operations** — Browser-based JavaScript cannot ensure side-channel resistance
@@ -391,7 +390,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 
