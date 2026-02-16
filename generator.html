@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.whatsonchain.com https://api.gorillapool.io https://*.taal.com; img-src 'self' data:; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.whatsonchain.com; img-src 'self' data:; form-action 'none';">
   <title>Envelope Generator — Merkle Envelope Tools</title>
   <script src="lib/crypto.js"></script>
   <script src="lib/encoding.js"></script>
@@ -79,11 +79,12 @@
 
   <div class="notice">
     <div class="notice-title">Requires Network</div>
-    <div class="notice-text">This tool fetches data from multiple BSV APIs for cross-validation. Transfer envelopes to your offline machine via USB.</div>
+    <div class="notice-text">This tool fetches data from the WhatsOnChain API. Transfer envelopes to your offline machine via USB.</div>
   </div>
 
   <div class="section">
-    <div class="mode-toggle">
+    <!-- Multi-source toggle hidden until additional APIs available -->
+    <div class="mode-toggle hidden">
       <input type="checkbox" id="multi-source-mode" checked>
       <label for="multi-source-mode">Multi-source verification</label>
       <span class="hint">Cross-validate with multiple APIs</span>
@@ -110,8 +111,8 @@
     <div id="tab-address" class="tab-content">
       <div class="field">
         <label class="label">BSV Address</label>
-        <input type="text" class="input" id="address-input" placeholder="1... or 3...">
-        <div class="hint">Fetches all UTXOs for this address</div>
+        <input type="text" class="input" id="address-input" placeholder="1...">
+        <div class="hint">P2PKH addresses only (starting with 1)</div>
       </div>
       <button class="btn btn-primary" id="fetch-address-btn">Fetch UTXOs</button>
     </div>
@@ -156,6 +157,11 @@
     // ==========================================
     // Multi-Source API Configuration
     // ==========================================
+    // Note: GorillaPool does not provide WoC-compatible REST API for tx lookup
+    // They use JungleBus (subscription) and ARC (broadcast) instead
+    // For multi-source, we use WhatsOnChain as primary with single-source fallback
+    // until additional compatible APIs become available
+    
     const API_SOURCES = {
       whatsonchain: {
         name: 'WhatsOnChain',
@@ -169,25 +175,15 @@
           blockHeader: (hash) => `/block/${hash}/header`,
           utxos: (addr) => `/address/${addr}/unspent`
         }
-      },
-      gorillapool: {
-        name: 'GorillaPool',
-        baseUrl: 'https://api.gorillapool.io/v1/bsv/main',
-        timeout: 15000,
-        endpoints: {
-          rawTx: (txid) => `/tx/${txid}/hex`,
-          txInfo: (txid) => `/tx/hash/${txid}`,
-          merkleProof: (txid) => `/tx/${txid}/proof/tsc`,
-          merkleProofLegacy: (txid) => `/tx/${txid}/proof`,
-          blockHeader: (hash) => `/block/${hash}/header`,
-          utxos: (addr) => `/address/${addr}/unspent`
-        }
       }
+      // GorillaPool removed - does not support tx lookup via REST API
+      // TAAL requires API key for most endpoints
+      // Future: Add additional sources when compatible APIs become available
     };
 
-    const ENABLED_SOURCES = ['whatsonchain', 'gorillapool'];
-    const MIN_CONSENSUS = 2;
-    const API_BASE = API_SOURCES.whatsonchain.baseUrl; // For legacy single-source mode
+    const ENABLED_SOURCES = ['whatsonchain'];
+    const MIN_CONSENSUS = 1; // Single source until additional APIs available
+    const API_BASE = API_SOURCES.whatsonchain.baseUrl;
 
     let envelopes = [];
 
@@ -799,6 +795,12 @@
 
       if (!address) {
         showError('Enter an address');
+        return;
+      }
+
+      // P2PKH only - addresses starting with 1
+      if (!address.startsWith('1')) {
+        showError('Only P2PKH addresses (starting with 1) are supported. P2SH addresses (starting with 3) are not supported.');
         return;
       }
 
