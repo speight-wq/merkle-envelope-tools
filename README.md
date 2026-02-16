@@ -35,35 +35,35 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ## Quick Start
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  ONLINE: Generate Envelope + Headers                        │
-│  1. Open generator.html                                     │
-│  2. Enter address or TXID to fetch UTXOs                    │
-│  3. Download envelope JSON                                  │
-│  4. (Optional) Open headers-generator.html                  │
-│  5. Download headers.bin for header chain verification      │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  ONLINE: Generate Envelope + Headers                           │
+│  1. Open generator.html                                        │
+│  2. Enter address or TXID to fetch UTXOs                       │
+│  3. Download envelope JSON                                     │
+│  4. (Optional) Open headers-generator.html                     │
+│  5. Download headers.bin for header chain verification         │
+└────────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  OFFLINE: Sign Transaction                                  │
-│  1. Open signer.html (disconnect from internet first)       │
+┌────────────────────────────────────────────────────────────────┐
+│  OFFLINE: Sign Transaction                                     │
+│  1. Open signer.html (disconnect from internet first)          │
 │  2. Load headers.bin (optional, for header chain verification) │
-│  3. Load envelope(s)                                        │
-│  4. Enter WIF private key                                   │
-│  5. Set destination address and amount                      │
-│  6. Review and confirm                                      │
-│  7. Copy or download signed transaction hex                 │
-└─────────────────────────────────────────────────────────────┘
+│  3. Load envelope(s)                                           │
+│  4. Enter WIF private key                                      │
+│  5. Set destination address and amount                         │
+│  6. Review and confirm                                         │
+│  7. Copy or download signed transaction hex                    │
+└────────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ONLINE: Broadcast                                          │
-│  • Paste hex at whatsonchain.com/broadcast                  │
-│  • Or submit to any BSV node                                │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  ONLINE: Broadcast                                             │
+│  • Paste hex at whatsonchain.com/broadcast                     │
+│  • Or submit to any BSV node                                   │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -374,7 +374,7 @@ To add a new source, extend `API_SOURCES` in generator.html with the endpoint co
 
 ## Audit Status
 
-⚠️ **This code has not been independently audited.**
+**This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -390,7 +390,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 
