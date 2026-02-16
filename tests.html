@@ -416,6 +416,82 @@
     });
 
     // ==========================================
+    // Difficulty floor tests
+    // ==========================================
+    test('validateDifficultyFloor: accepts checkpoint difficulty', () => {
+      const header = { nBits: CHECKPOINT.nBits, timestamp: 1700000000 };
+      const result = validateDifficultyFloor(header, CHECKPOINT.height + 1);
+      assertEqual(result.valid, true);
+      return true;
+    });
+
+    test('validateDifficultyFloor: accepts within 8x tolerance', () => {
+      // Headers within 8x of checkpoint difficulty should pass
+      const header = { nBits: CHECKPOINT.nBits, timestamp: 1700000000 };
+      const result = validateDifficultyFloor(header, CHECKPOINT.height + 100);
+      assertEqual(result.valid, true);
+      return true;
+    });
+
+    test('validateDifficultyFloor: rejects difficulty-1 header', () => {
+      // nBits for difficulty 1 (trivially forgeable)
+      const header = { nBits: 0x1d00ffff, timestamp: 1700000000 };
+      const result = validateDifficultyFloor(header, CHECKPOINT.height + 1);
+      assertEqual(result.valid, false);
+      return true;
+    });
+
+    test('validateDifficultyFloor: rejects pre-genesis timestamp', () => {
+      const header = { nBits: CHECKPOINT.nBits, timestamp: 1000000000 };
+      const result = validateDifficultyFloor(header, CHECKPOINT.height + 1);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('genesis'), true);
+      return true;
+    });
+
+    test('validateDifficultyFloor: rejects future timestamp', () => {
+      const futureTime = Math.floor(Date.now() / 1000) + 10000;
+      const header = { nBits: CHECKPOINT.nBits, timestamp: futureTime };
+      const result = validateDifficultyFloor(header, CHECKPOINT.height + 1);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('future'), true);
+      return true;
+    });
+
+    test('getEffectiveFloor: returns static floor by default', () => {
+      clearDynamicFloor();
+      const floor = getEffectiveFloor();
+      assertEqual(floor.source.includes('checkpoint'), true);
+      assertEqual(floor.target, STATIC_FLOOR_TARGET);
+      return true;
+    });
+
+    test('setDynamicFloor: updates effective floor', () => {
+      const testNBits = 0x1804596e;
+      setDynamicFloor(testNBits, 935285);
+      const floor = getEffectiveFloor();
+      assertEqual(floor.source.includes('935285'), true);
+      clearDynamicFloor(); // Reset for other tests
+      return true;
+    });
+
+    test('validateHeaderDifficulty: rejects low difficulty standalone', () => {
+      clearDynamicFloor();
+      // Build a fake 80-byte header with difficulty-1
+      const version = '01000000';
+      const prevBlock = '00'.repeat(32);
+      const merkleRoot = '00'.repeat(32);
+      const time = '00000000';
+      const nBits = 'ffff001d'; // 0x1d00ffff in little-endian
+      const nonce = '00000000';
+      const headerHex = version + prevBlock + merkleRoot + time + nBits + nonce;
+      
+      const result = validateHeaderDifficulty(headerHex);
+      assertEqual(result.valid, false);
+      return true;
+    });
+
+    // ==========================================
     // Render results
     // ==========================================
     function render() {
@@ -441,6 +517,7 @@
         } else if (r.name.startsWith('sighash') || r.name.startsWith('compute') || r.name.startsWith('build')) {
           groups['sighash.js'].push(r);
         } else {
+          // headers.js includes: verifyMerkleProof, checkMerkleProofSafe, validateDifficultyFloor, validateHeaderDifficulty
           groups['headers.js'].push(r);
         }
       }

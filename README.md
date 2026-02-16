@@ -35,35 +35,35 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ## Quick Start
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Generate Envelope + Headers                           │
-│  1. Open generator.html                                        │
-│  2. Enter address or TXID to fetch UTXOs                       │
-│  3. Download envelope JSON                                     │
-│  4. (Optional) Open headers-generator.html                     │
-│  5. Download headers.bin for header chain verification         │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Generate Envelope + Headers                        │
+│  1. Open generator.html                                     │
+│  2. Enter address or TXID to fetch UTXOs                    │
+│  3. Download envelope JSON                                  │
+│  4. (Optional) Open headers-generator.html                  │
+│  5. Download headers.bin for header chain verification      │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  OFFLINE: Sign Transaction                                     │
-│  1. Open signer.html (disconnect from internet first)          │
+┌─────────────────────────────────────────────────────────────┐
+│  OFFLINE: Sign Transaction                                  │
+│  1. Open signer.html (disconnect from internet first)       │
 │  2. Load headers.bin (optional, for header chain verification) │
-│  3. Load envelope(s)                                           │
-│  4. Enter WIF private key                                      │
-│  5. Set destination address and amount                         │
-│  6. Review and confirm                                         │
-│  7. Copy or download signed transaction hex                    │
-└────────────────────────────────────────────────────────────────┘
+│  3. Load envelope(s)                                        │
+│  4. Enter WIF private key                                   │
+│  5. Set destination address and amount                      │
+│  6. Review and confirm                                      │
+│  7. Copy or download signed transaction hex                 │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Broadcast                                             │
-│  • Paste hex at whatsonchain.com/broadcast                     │
-│  • Or submit to any BSV node                                   │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Broadcast                                          │
+│  • Paste hex at whatsonchain.com/broadcast                  │
+│  • Or submit to any BSV node                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -156,18 +156,23 @@ Run before use to verify cryptographic integrity.
 
 **Checkpoint trust anchor:**
 
-The tool anchors header chain verification to block 880,000:
+The tool anchors header chain verification to block 935,000:
 ```
-hash: 0000000000000000067ef53e9c4bf1297d0860a36b81b0e03ad0be6fb719788d
+height: 935,000
+hash: 00000000000000000482b4dbe828e0ce479e71e5986eb14374757a7e4eb30e02
+nBits: 0x1804596e
 ```
+
+**Difficulty Floor System:**
+- **Static floor:** 8x tolerance from checkpoint nBits (used when no header chain loaded)
+- **Dynamic floor:** When header chain loaded, uses chain tip's nBits for tighter validation
+- **Attack cost:** Attacker needs ~12.5% of current hashrate to forge valid-difficulty header
 
 **This checkpoint is an unverified trust anchor.** The tool cannot validate it independently. If this hash is incorrect or has been tampered with, all header chain verification is compromised. Users must verify this checkpoint through external sources before relying on header chain verification.
 
-**Why block 880,000:** Recent enough to minimize headers needed for current transactions, old enough to have deep confirmation (56,000+ blocks as of January 2025).
-
 **To independently verify:**
-1. Query multiple block explorers (whatsonchain.com, blockchair.com/bitcoin-sv)
-2. Query your own BSV node: `bitcoin-cli getblockhash 880000`
+1. Query multiple block explorers (whatsonchain.com/block-height/935000)
+2. Query your own BSV node: `bitcoin-cli getblockhash 935000`
 3. Compare against the hash in `lib/headers.js`
 
 If sources disagree, do not use this tool until resolved.
@@ -192,6 +197,8 @@ See [Limitations](#limitations) for threats this tool does not protect against.
 
 ### Security Hardening (v2.0.0)
 
+- Dynamic difficulty floor — Static 8x floor from checkpoint, tightens to chain tip when headers loaded
+- Timestamp validation — Rejects headers before genesis or too far in future
 - Multi-source architecture — Ready for cross-validation when additional APIs available
 - CVE-2012-2459 protection — Rejects duplicate Merkle nodes
 - Minimum difficulty enforcement — Rejects trivially easy targets
@@ -254,12 +261,12 @@ The format works with any API providing raw transaction hex, Merkle proof, and b
 | lib/encoding.js | `22ea32359c2fd34aa9e421d99a2386f200e861bc7a364709745476d4091f57c1` |
 | lib/secp256k1.js | `fc2d03baff7e802a8aed8e49a59c6b044089f9f585e1a1c9fe281b73da0e3e2b` |
 | lib/sighash.js | `297151d898312ac0287abac527902ab4dec22804bbe1b782d4785bbbe789892f` |
-| lib/headers.js | `9d515bfd07591e4499ccff54e0b39b2a48587aafac64c40c630b79147d44efb4` |
+| lib/headers.js | `302dff30d54318c7c975044a716481d9a564c3f313c6e6e4057997a3382d5c74` |
 | generator.html | `d24c73016d636e64eb94ae68ca17aa5c17f69be223a41ae819f054d708884ca1` |
 | headers-generator.html | `deef130a41ab70141ba96070764ed45de65112978443c2240716adafcdf93ae1` |
 | verifier.html | `3258fb9c69ac95e390756527082062fb520bafea6ee5dd7e1061170176a4c0d5` |
-| signer.html | `f818018f082a60aab47082dbb3903764e494a9c9422050a2462f2920c579e7ad` |
-| tests.html | `578049d5d7c26eaf05a2282216443208211ad0230dd454fd3ab19f2091b41929` |
+| signer.html | `3be3b36eef89018946fbf5661297b36d8d867f7a62d85358829504dce3fc9033` |
+| tests.html | `be2597281b3a05208a9c8bdd00c317dc67923dffcac6cc110ab46a189a3457cf` |
 
 ### How to Verify
 
@@ -367,7 +374,7 @@ To add a new source, extend `API_SOURCES` in generator.html with the endpoint co
 
 ## Audit Status
 
-**This code has not been independently audited.**
+⚠️ **This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -383,7 +390,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER. DEALINGS IN THE SOFTWARE.**
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 

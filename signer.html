@@ -450,6 +450,12 @@
           let status = 'No proof';
           let chainVerified = false;
           if (env.blockHeader && env.proof) {
+            // Verify difficulty floor (prevents synthetic low-difficulty chains)
+            const diffCheck = validateHeaderDifficulty(env.blockHeader);
+            if (!diffCheck.valid) {
+              throw new Error('Input #' + (i+1) + ': ' + diffCheck.reason);
+            }
+            
             // Verify PoW
             if (!verifyPoW(env.blockHeader)) {
               throw new Error('Input #' + (i+1) + ': Invalid block PoW');
