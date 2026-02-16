@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.whatsonchain.com; img-src 'self' data:; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.whatsonchain.com https://api.gorillapool.io https://*.taal.com; img-src 'self' data:; form-action 'none';">
   <title>Envelope Generator — Merkle Envelope Tools</title>
   <script src="lib/crypto.js"></script>
   <script src="lib/encoding.js"></script>
@@ -54,6 +54,21 @@
     .envelope-amount { font-weight: 500; }
     .error-box { background: #ffe3e3; border: 2px solid var(--danger); border-radius: 8px; padding: 16px; color: var(--danger); margin-top: 16px; }
     .input-narrow { width: 100px; }
+    .trust-summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 16px; }
+    .trust-header { font-weight: 600; margin-bottom: 12px; font-size: 0.9rem; }
+    .trust-sources { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+    .source-status { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; }
+    .source-ok { color: var(--success); }
+    .source-fail { color: var(--danger); }
+    .source-warn { color: var(--warning); }
+    .trust-checks { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; margin-top: 8px; }
+    .trust-check { display: flex; align-items: center; gap: 4px; }
+    .trust-consensus { font-size: 0.85rem; color: var(--text-2); padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+    .trust-warning { background: var(--warning-bg); color: var(--warning); padding: 8px 12px; border-radius: 4px; font-size: 0.8rem; margin-top: 8px; }
+    .mode-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+    .mode-toggle input { width: 18px; height: 18px; }
+    .mode-toggle label { font-size: 0.875rem; color: var(--text-2); cursor: pointer; }
+    .mode-toggle .hint { font-size: 0.8rem; color: var(--text-3); margin-left: auto; }
     footer { text-align: center; color: var(--text-3); font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
     footer a { color: var(--accent); text-decoration: none; }
   </style>
@@ -64,10 +79,16 @@
 
   <div class="notice">
     <div class="notice-title">Requires Network</div>
-    <div class="notice-text">This tool fetches data from the BSV blockchain. Transfer envelopes to your offline machine via USB.</div>
+    <div class="notice-text">This tool fetches data from multiple BSV APIs for cross-validation. Transfer envelopes to your offline machine via USB.</div>
   </div>
 
   <div class="section">
+    <div class="mode-toggle">
+      <input type="checkbox" id="multi-source-mode" checked>
+      <label for="multi-source-mode">Multi-source verification</label>
+      <span class="hint">Cross-validate with multiple APIs</span>
+    </div>
+
     <div class="tabs">
       <button class="tab active" data-tab="txid">By TXID</button>
       <button class="tab" data-tab="address">By Address</button>
@@ -101,6 +122,14 @@
       <div class="progress-text" id="progress-text">Fetching...</div>
     </div>
 
+    <div id="trust-section" class="trust-summary hidden">
+      <div class="trust-header">Source Verification</div>
+      <div class="trust-sources" id="trust-sources"></div>
+      <div class="trust-checks" id="trust-checks"></div>
+      <div class="trust-consensus" id="trust-consensus"></div>
+      <div id="trust-warning" class="trust-warning hidden"></div>
+    </div>
+
     <div id="error-section" class="error-box hidden"></div>
   </div>
 
@@ -124,7 +153,42 @@
   (function() {
     'use strict';
 
-    const API_BASE = 'https://api.whatsonchain.com/v1/bsv/main';
+    // ==========================================
+    // Multi-Source API Configuration
+    // ==========================================
+    const API_SOURCES = {
+      whatsonchain: {
+        name: 'WhatsOnChain',
+        baseUrl: 'https://api.whatsonchain.com/v1/bsv/main',
+        timeout: 15000,
+        endpoints: {
+          rawTx: (txid) => `/tx/${txid}/hex`,
+          txInfo: (txid) => `/tx/hash/${txid}`,
+          merkleProof: (txid) => `/tx/${txid}/proof/tsc`,
+          merkleProofLegacy: (txid) => `/tx/${txid}/proof`,
+          blockHeader: (hash) => `/block/${hash}/header`,
+          utxos: (addr) => `/address/${addr}/unspent`
+        }
+      },
+      gorillapool: {
+        name: 'GorillaPool',
+        baseUrl: 'https://api.gorillapool.io/v1/bsv/main',
+        timeout: 15000,
+        endpoints: {
+          rawTx: (txid) => `/tx/${txid}/hex`,
+          txInfo: (txid) => `/tx/hash/${txid}`,
+          merkleProof: (txid) => `/tx/${txid}/proof/tsc`,
+          merkleProofLegacy: (txid) => `/tx/${txid}/proof`,
+          blockHeader: (hash) => `/block/${hash}/header`,
+          utxos: (addr) => `/address/${addr}/unspent`
+        }
+      }
+    };
+
+    const ENABLED_SOURCES = ['whatsonchain', 'gorillapool'];
+    const MIN_CONSENSUS = 2;
+    const API_BASE = API_SOURCES.whatsonchain.baseUrl; // For legacy single-source mode
+
     let envelopes = [];
 
     // ==========================================
@@ -142,8 +206,21 @@
     // ==========================================
     // API Helpers
     // ==========================================
-    async function fetchJson(url) {
-      const res = await fetch(url);
+    async function fetchWithTimeout(url, timeout) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        return res;
+      } catch (e) {
+        clearTimeout(timeoutId);
+        throw e;
+      }
+    }
+
+    async function fetchJson(url, timeout = 15000) {
+      const res = await fetchWithTimeout(url, timeout);
       if (!res.ok) {
         if (res.status === 404) return null;
         throw new Error('HTTP ' + res.status);
@@ -151,8 +228,8 @@
       return res.json();
     }
 
-    async function fetchText(url) {
-      const res = await fetch(url);
+    async function fetchText(url, timeout = 15000) {
+      const res = await fetchWithTimeout(url, timeout);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return res.text();
     }
@@ -177,8 +254,379 @@
       document.getElementById('error-section').classList.add('hidden');
     }
 
+    function hideTrustSummary() {
+      document.getElementById('trust-section').classList.add('hidden');
+    }
+
+    function showTrustSummary(result) {
+      const section = document.getElementById('trust-section');
+      const sourcesDiv = document.getElementById('trust-sources');
+      const checksDiv = document.getElementById('trust-checks');
+      const consensusDiv = document.getElementById('trust-consensus');
+      const warningDiv = document.getElementById('trust-warning');
+
+      // Source status
+      sourcesDiv.innerHTML = result.sources.map(s => {
+        let statusClass = s.success ? 'source-ok' : 'source-fail';
+        let statusIcon = s.success ? '✓' : '✗';
+        let errorText = s.error ? ` (${s.error})` : '';
+        return `<span class="source-status ${statusClass}">
+          ${statusIcon} ${s.name}${errorText}
+        </span>`;
+      }).join('');
+
+      // Check results
+      if (result.checks) {
+        checksDiv.innerHTML = `
+          <span class="trust-check ${result.checks.rawTx ? 'source-ok' : 'source-fail'}">
+            ${result.checks.rawTx ? '✓' : '✗'} rawTx
+          </span>
+          <span class="trust-check ${result.checks.blockHeader ? 'source-ok' : 'source-fail'}">
+            ${result.checks.blockHeader ? '✓' : '✗'} blockHeader
+          </span>
+          <span class="trust-check ${result.checks.merkleProof ? 'source-ok' : 'source-fail'}">
+            ${result.checks.merkleProof ? '✓' : '✗'} merkleProof
+          </span>
+        `;
+      }
+
+      // Consensus
+      const agreed = result.sources.filter(s => s.success && s.agreed).length;
+      const total = result.sources.length;
+      
+      if (result.singleSource) {
+        consensusDiv.textContent = `Single source mode: ${agreed}/${total} sources available`;
+        consensusDiv.style.color = 'var(--warning)';
+      } else {
+        consensusDiv.textContent = `Consensus: ${agreed}/${total} sources agree`;
+        consensusDiv.style.color = agreed === total ? 'var(--success)' : 'var(--text-2)';
+      }
+
+      // Warning
+      if (result.warning) {
+        warningDiv.textContent = '⚠ ' + result.warning;
+        warningDiv.classList.remove('hidden');
+      } else {
+        warningDiv.classList.add('hidden');
+      }
+
+      section.classList.remove('hidden');
+    }
+
     // ==========================================
-    // Generate Envelope for TXID
+    // Multi-Source Data Fetching
+    // ==========================================
+    async function fetchFromSource(sourceId, txid) {
+      const source = API_SOURCES[sourceId];
+      const result = {
+        sourceId,
+        name: source.name,
+        success: false,
+        data: {},
+        error: null
+      };
+
+      try {
+        // Fetch raw tx
+        const rawTx = await fetchText(
+          source.baseUrl + source.endpoints.rawTx(txid),
+          source.timeout
+        );
+        if (!rawTx) throw new Error('Transaction not found');
+        result.data.rawTx = rawTx.toLowerCase().trim();
+
+        // Fetch tx info
+        const txInfo = await fetchJson(
+          source.baseUrl + source.endpoints.txInfo(txid),
+          source.timeout
+        );
+        if (!txInfo) throw new Error('TX info not found');
+        result.data.txInfo = txInfo;
+
+        // Fetch merkle proof if confirmed
+        if (txInfo.blockhash) {
+          result.data.blockhash = txInfo.blockhash;
+
+          // Try TSC format first
+          let proofData = null;
+          try {
+            const proof = await fetchJson(
+              source.baseUrl + source.endpoints.merkleProof(txid),
+              source.timeout
+            );
+            if (proof && Array.isArray(proof) && proof.length > 0) {
+              proofData = proof[0];
+            }
+          } catch (e) {
+            // Try legacy format
+            const proof = await fetchJson(
+              source.baseUrl + source.endpoints.merkleProofLegacy(txid),
+              source.timeout
+            );
+            if (proof && proof.length > 0) {
+              proofData = proof[0];
+            }
+          }
+
+          if (proofData) {
+            result.data.proofData = proofData;
+            const proofNodes = proofData.nodes || proofData.siblings || [];
+            result.data.proofNodes = proofNodes;
+            result.data.txIndex = proofData.index || 0;
+          }
+
+          // Fetch block header
+          const headerInfo = await fetchJson(
+            source.baseUrl + source.endpoints.blockHeader(txInfo.blockhash),
+            source.timeout
+          );
+          if (headerInfo) {
+            // Build raw header from JSON
+            const version = headerInfo.version.toString(16).padStart(8, '0');
+            const versionLE = version.match(/../g).reverse().join('');
+            const prevBlock = headerInfo.previousblockhash.match(/../g).reverse().join('');
+            const merkleRoot = headerInfo.merkleroot.match(/../g).reverse().join('');
+            const time = headerInfo.time.toString(16).padStart(8, '0');
+            const timeLE = time.match(/../g).reverse().join('');
+            const bits = headerInfo.bits;
+            const bitsLE = bits.match(/../g).reverse().join('');
+            const nonce = headerInfo.nonce.toString(16).padStart(8, '0');
+            const nonceLE = nonce.match(/../g).reverse().join('');
+            result.data.blockHeader = (versionLE + prevBlock + merkleRoot + timeLE + bitsLE + nonceLE).toLowerCase();
+          }
+        }
+
+        result.success = true;
+      } catch (e) {
+        result.error = e.message;
+      }
+
+      return result;
+    }
+
+    // ==========================================
+    // Multi-Source Consensus Validation
+    // ==========================================
+    function validateConsensus(responses, txid) {
+      const successful = responses.filter(r => r.success);
+      const failed = responses.filter(r => !r.success);
+      
+      // Check if failures are just 404s (transaction not indexed by that source)
+      const hardFailures = failed.filter(r => r.error && !r.error.includes('404') && !r.error.includes('not found'));
+      const softFailures = failed.filter(r => r.error && (r.error.includes('404') || r.error.includes('not found')));
+      
+      // If we have at least 1 successful source and others are just 404s, proceed with warning
+      if (successful.length === 1 && softFailures.length > 0 && hardFailures.length === 0) {
+        console.log('Single source available, others returned 404 - proceeding with warning');
+        return {
+          valid: true,
+          data: successful[0].data,
+          sources: responses.map(r => ({ 
+            name: r.name, 
+            success: r.success, 
+            agreed: r.success,
+            error: r.error
+          })),
+          checks: { rawTx: true, blockHeader: true, merkleProof: true },
+          warning: `Only ${successful[0].name} has this transaction indexed. Cross-validation not possible.`,
+          singleSource: true
+        };
+      }
+      
+      if (successful.length < MIN_CONSENSUS && hardFailures.length > 0) {
+        return {
+          valid: false,
+          error: `Insufficient sources: ${successful.length}/${MIN_CONSENSUS} required. Errors: ${failed.map(f => f.name + ': ' + f.error).join(', ')}`,
+          sources: responses.map(r => ({ 
+            name: r.name, 
+            success: r.success, 
+            agreed: false,
+            error: r.error 
+          }))
+        };
+      }
+      
+      if (successful.length === 0) {
+        return {
+          valid: false,
+          error: `No sources responded successfully`,
+          sources: responses.map(r => ({ 
+            name: r.name, 
+            success: r.success, 
+            agreed: false,
+            error: r.error 
+          }))
+        };
+      }
+
+      // If only one source succeeded, use it with warning
+      if (successful.length === 1) {
+        return {
+          valid: true,
+          data: successful[0].data,
+          sources: responses.map(r => ({ 
+            name: r.name, 
+            success: r.success, 
+            agreed: r.success,
+            error: r.error
+          })),
+          checks: { rawTx: true, blockHeader: true, merkleProof: true },
+          warning: `Only ${successful[0].name} responded. Cross-validation not possible.`,
+          singleSource: true
+        };
+      }
+
+      // Compare rawTx byte-for-byte
+      const rawTxes = successful.map(r => r.data.rawTx);
+      const rawTxMatch = rawTxes.every(tx => constantTimeEqual(tx, rawTxes[0]));
+      if (!rawTxMatch) {
+        return {
+          valid: false,
+          error: 'CRITICAL: rawTx mismatch between sources — possible attack',
+          sources: responses.map(r => ({ name: r.name, success: r.success, agreed: false })),
+          checks: { rawTx: false, blockHeader: false, merkleProof: false }
+        };
+      }
+
+      // Verify TXID matches rawTx
+      const computedTxid = reverseHex(bytesToHex(hash256(rawTxes[0])));
+      if (!constantTimeEqual(computedTxid.toLowerCase(), txid.toLowerCase())) {
+        return {
+          valid: false,
+          error: 'TXID does not match rawTx hash',
+          sources: responses.map(r => ({ name: r.name, success: r.success, agreed: false })),
+          checks: { rawTx: false, blockHeader: false, merkleProof: false }
+        };
+      }
+
+      // Compare blockHeader byte-for-byte (if confirmed)
+      const withHeaders = successful.filter(r => r.data.blockHeader);
+      let headerMatch = true;
+      if (withHeaders.length >= 2) {
+        const headers = withHeaders.map(r => r.data.blockHeader);
+        headerMatch = headers.every(h => constantTimeEqual(h, headers[0]));
+        if (!headerMatch) {
+          return {
+            valid: false,
+            error: 'CRITICAL: blockHeader mismatch between sources — possible chain split',
+            sources: responses.map(r => ({ name: r.name, success: r.success, agreed: false })),
+            checks: { rawTx: true, blockHeader: false, merkleProof: false }
+          };
+        }
+      }
+
+      // Verify Merkle proofs independently
+      let merkleMatch = true;
+      const withProofs = successful.filter(r => r.data.proofNodes && r.data.blockHeader);
+      if (withProofs.length >= 2) {
+        const computedRoots = withProofs.map(r => {
+          try {
+            const proofArray = r.data.proofNodes.map((node, i) => ({
+              hash: node === '*' ? '*' : reverseHex(node),
+              pos: ((r.data.txIndex >> i) & 1) ? 'L' : 'R'
+            }));
+            const header = parseHeader(r.data.blockHeader);
+            const valid = verifyMerkleProof(txid, proofArray, header.merkleRoot);
+            return { source: r.name, valid, root: header.merkleRoot };
+          } catch (e) {
+            return { source: r.name, valid: false, error: e.message };
+          }
+        });
+
+        merkleMatch = computedRoots.every(r => r.valid);
+        if (!merkleMatch) {
+          return {
+            valid: false,
+            error: 'Merkle proof verification failed',
+            sources: responses.map(r => ({ name: r.name, success: r.success, agreed: false })),
+            checks: { rawTx: true, blockHeader: true, merkleProof: false }
+          };
+        }
+      }
+
+      // All checks passed
+      return {
+        valid: true,
+        data: successful[0].data,
+        sources: responses.map(r => ({ 
+          name: r.name, 
+          success: r.success, 
+          agreed: r.success,
+          error: r.error
+        })),
+        checks: { rawTx: true, blockHeader: headerMatch, merkleProof: merkleMatch },
+        warning: successful.length < responses.length ? 
+          `${successful.length}/${responses.length} sources verified` : null
+      };
+    }
+
+    // ==========================================
+    // Generate Envelope (Multi-Source)
+    // ==========================================
+    async function generateEnvelopeMultiSource(txid, vout) {
+      showProgress(10, 'Fetching from multiple sources...');
+
+      // Fetch from all sources in parallel
+      const fetchPromises = ENABLED_SOURCES.map(sourceId => 
+        fetchFromSource(sourceId, txid)
+      );
+      
+      const responses = await Promise.all(fetchPromises);
+      showProgress(60, 'Validating consensus...');
+
+      // Validate consensus
+      const consensus = validateConsensus(responses, txid);
+      
+      if (!consensus.valid) {
+        return { success: false, error: consensus.error, consensus };
+      }
+
+      showProgress(80, 'Building envelope...');
+
+      // Build envelope from validated data
+      const data = consensus.data;
+      const txInfo = data.txInfo;
+      
+      if (vout >= txInfo.vout.length) {
+        return { success: false, error: 'vout out of range', consensus };
+      }
+
+      const output = txInfo.vout[vout];
+      const satoshis = Math.round(output.value * 1e8);
+
+      const envelope = {
+        format: 'merkle-envelope',
+        version: 1,
+        txid: txid,
+        vout: vout,
+        satoshis: satoshis,
+        rawTx: data.rawTx,
+        confirmations: txInfo.confirmations || 0
+      };
+
+      // Add proof data if available
+      if (data.blockHeader && data.proofNodes && data.proofNodes.length > 0) {
+        const header = parseHeader(data.blockHeader);
+        const proofArray = data.proofNodes.map((node, i) => ({
+          hash: node === '*' ? '*' : reverseHex(node),
+          pos: ((data.txIndex >> i) & 1) ? 'L' : 'R'
+        }));
+
+        // Final verification
+        const valid = verifyMerkleProof(txid, proofArray, header.merkleRoot);
+        if (valid) {
+          envelope.blockHeader = data.blockHeader;
+          envelope.blockHash = data.blockhash;
+          envelope.proof = proofArray;
+        }
+      }
+
+      showProgress(100, 'Complete');
+      return { success: true, envelope, consensus };
+    }
+
+    // ==========================================
+    // Generate Envelope (Single Source - Legacy)
     // ==========================================
     async function generateEnvelopeForTxid(txid, vout) {
       // Fetch raw tx
@@ -298,6 +746,7 @@
     document.getElementById('fetch-txid-btn').addEventListener('click', async function() {
       const txid = document.getElementById('txid-input').value.trim();
       const vout = parseInt(document.getElementById('vout-input').value) || 0;
+      const multiSourceEnabled = document.getElementById('multi-source-mode').checked;
 
       if (!txid || txid.length !== 64) {
         showError('Enter a valid 64-character TXID');
@@ -305,14 +754,33 @@
       }
 
       hideError();
+      hideTrustSummary();
       envelopes = [];
 
       try {
-        showProgress(20, 'Fetching transaction...');
-        const envelope = await generateEnvelopeForTxid(txid, vout);
-        showProgress(100, 'Done');
+        if (multiSourceEnabled) {
+          // Multi-source mode
+          const result = await generateEnvelopeMultiSource(txid, vout);
+          
+          if (!result.success) {
+            showError(result.error);
+            if (result.consensus) {
+              showTrustSummary(result.consensus);
+            }
+            hideProgress();
+            return;
+          }
+          
+          showTrustSummary(result.consensus);
+          envelopes = [result.envelope];
+        } else {
+          // Single source mode (legacy)
+          showProgress(20, 'Fetching from WhatsOnChain...');
+          const envelope = await generateEnvelopeForTxid(txid, vout);
+          showProgress(100, 'Done');
+          envelopes = [envelope];
+        }
 
-        envelopes = [envelope];
         displayEnvelopes();
 
       } catch (err) {
@@ -327,6 +795,7 @@
     // ==========================================
     document.getElementById('fetch-address-btn').addEventListener('click', async function() {
       const address = document.getElementById('address-input').value.trim();
+      const multiSourceEnabled = document.getElementById('multi-source-mode').checked;
 
       if (!address) {
         showError('Enter an address');
@@ -334,13 +803,19 @@
       }
 
       hideError();
+      hideTrustSummary();
       envelopes = [];
 
       try {
         showProgress(10, 'Fetching UTXOs...');
 
-        // Fetch UTXOs
-        const utxos = await fetchJson(API_BASE + '/address/' + address + '/unspent');
+        // Fetch UTXOs (always from primary source for address lookup)
+        const primarySource = API_SOURCES[ENABLED_SOURCES[0]];
+        const utxos = await fetchJson(
+          primarySource.baseUrl + primarySource.endpoints.utxos(address),
+          primarySource.timeout
+        );
+        
         if (!utxos || utxos.length === 0) {
           showError('No UTXOs found for this address');
           hideProgress();
@@ -349,20 +824,33 @@
 
         showProgress(20, 'Found ' + utxos.length + ' UTXOs. Generating envelopes...');
 
+        let lastConsensus = null;
         for (let i = 0; i < utxos.length; i++) {
           const utxo = utxos[i];
           const pct = 20 + (80 * (i + 1) / utxos.length);
           showProgress(pct, 'Processing ' + (i + 1) + ' / ' + utxos.length);
 
           try {
-            const envelope = await generateEnvelopeForTxid(utxo.tx_hash, utxo.tx_pos);
-            envelopes.push(envelope);
+            if (multiSourceEnabled) {
+              const result = await generateEnvelopeMultiSource(utxo.tx_hash, utxo.tx_pos);
+              if (result.success) {
+                envelopes.push(result.envelope);
+                lastConsensus = result.consensus;
+              }
+            } else {
+              const envelope = await generateEnvelopeForTxid(utxo.tx_hash, utxo.tx_pos);
+              envelopes.push(envelope);
+            }
           } catch (err) {
             console.error('Failed to generate envelope for', utxo.tx_hash, err);
           }
 
           // Rate limiting
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise(r => setTimeout(r, multiSourceEnabled ? 500 : 200));
+        }
+
+        if (multiSourceEnabled && lastConsensus) {
+          showTrustSummary(lastConsensus);
         }
 
         displayEnvelopes();

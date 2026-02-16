@@ -35,35 +35,35 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ## Quick Start
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Generate Envelope + Headers                           │
-│  1. Open generator.html                                        │
-│  2. Enter address or TXID to fetch UTXOs                       │
-│  3. Download envelope JSON                                     │
-│  4. (Optional) Open headers-generator.html                     │
-│  5. Download headers.bin for header chain verification         │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Generate Envelope + Headers                        │
+│  1. Open generator.html                                     │
+│  2. Enter address or TXID to fetch UTXOs                    │
+│  3. Download envelope JSON                                  │
+│  4. (Optional) Open headers-generator.html                  │
+│  5. Download headers.bin for header chain verification      │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  OFFLINE: Sign Transaction                                     │
-│  1. Open signer.html (disconnect from internet first)          │
+┌─────────────────────────────────────────────────────────────┐
+│  OFFLINE: Sign Transaction                                  │
+│  1. Open signer.html (disconnect from internet first)       │
 │  2. Load headers.bin (optional, for header chain verification) │
-│  3. Load envelope(s)                                           │
-│  4. Enter WIF private key                                      │
-│  5. Set destination address and amount                         │
-│  6. Review and confirm                                         │
-│  7. Copy or download signed transaction hex                    │
-└────────────────────────────────────────────────────────────────┘
+│  3. Load envelope(s)                                        │
+│  4. Enter WIF private key                                   │
+│  5. Set destination address and amount                      │
+│  6. Review and confirm                                      │
+│  7. Copy or download signed transaction hex                 │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Broadcast                                             │
-│  • Paste hex at whatsonchain.com/broadcast                     │
-│  • Or submit to any BSV node                                   │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Broadcast                                          │
+│  • Paste hex at whatsonchain.com/broadcast                  │
+│  • Or submit to any BSV node                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -72,7 +72,19 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 
 ### generator.html (Online)
 
-Creates Merkle envelopes for confirmed BSV transactions.
+Creates Merkle envelopes for confirmed BSV transactions with multi-source verification.
+
+**Multi-Source Mode (default):**
+- Fetches data from WhatsOnChain and GorillaPool in parallel
+- Compares rawTx byte-for-byte across sources
+- Compares blockHeader byte-for-byte across sources
+- Independently verifies Merkle proofs from each source
+- Rejects if any mismatch detected
+- Displays trust summary showing source consensus
+
+**Single-Source Mode:**
+- Legacy mode using WhatsOnChain only
+- Can be enabled by unchecking "Multi-source verification"
 
 **Modes:**
 - **By TXID** — Single transaction lookup
@@ -134,7 +146,7 @@ Signs transactions using verified Merkle envelopes as proof of funds.
 
 ### tests.html (Offline)
 
-Cryptographic test suite with 42 test vectors across SHA-256, RIPEMD-160, secp256k1, Base58Check, Merkle proofs, and PoW validation.
+Cryptographic test suite with 38 test vectors across SHA-256, RIPEMD-160, secp256k1, Base58Check, Merkle proofs, and PoW validation.
 
 Run before use to verify cryptographic integrity.
 
@@ -146,9 +158,12 @@ Run before use to verify cryptographic integrity.
 
 **You trust:**
 1. The embedded checkpoint is correct (see below)
-2. WhatsOnChain API provided honest data at envelope generation time
-3. Generating cumulative PoW exceeding the real chain is economically infeasible
-4. Your offline machine is not compromised
+2. In multi-source mode: WhatsOnChain and GorillaPool are not colluding to provide false data
+3. In single-source mode: WhatsOnChain API provided honest data at envelope generation time
+4. Generating cumulative PoW exceeding the real chain is economically infeasible
+5. Your offline machine is not compromised
+
+**Multi-source verification** reduces trust from "trust one API completely" to "trust that two independent APIs are not colluding." This significantly increases the cost of an attack on envelope generation.
 
 **Checkpoint trust anchor:**
 
@@ -188,6 +203,7 @@ See [Limitations](#limitations) for threats this tool does not protect against.
 
 ### Security Hardening (v2.0.0)
 
+- Multi-source envelope generation — Cross-validates data from WhatsOnChain and GorillaPool
 - CVE-2012-2459 protection — Rejects duplicate Merkle nodes
 - Minimum difficulty enforcement — Rejects trivially easy targets
 - Header chain verification — Validates prevBlock linkage
@@ -250,7 +266,7 @@ The format works with any API providing raw transaction hex, Merkle proof, and b
 | lib/secp256k1.js | `fc2d03baff7e802a8aed8e49a59c6b044089f9f585e1a1c9fe281b73da0e3e2b` |
 | lib/sighash.js | `297151d898312ac0287abac527902ab4dec22804bbe1b782d4785bbbe789892f` |
 | lib/headers.js | `9d515bfd07591e4499ccff54e0b39b2a48587aafac64c40c630b79147d44efb4` |
-| generator.html | `f6384a48761b44e4177907bf4d91f8874f048116e9b9c0b970ca4e5189eb3c8c` |
+| generator.html | `c2ad3deda306d2d3244d646fbba8e0e59e1999968a4164623a10f4883629ca78` |
 | headers-generator.html | `deef130a41ab70141ba96070764ed45de65112978443c2240716adafcdf93ae1` |
 | verifier.html | `3258fb9c69ac95e390756527082062fb520bafea6ee5dd7e1061170176a4c0d5` |
 | signer.html | `f818018f082a60aab47082dbb3903764e494a9c9422050a2462f2920c579e7ad` |
@@ -279,7 +295,7 @@ If hashes don't match, **do not use the files**.
 - **P2PKH only** — Standard addresses starting with "1" (no P2SH/multisig)
 - **Same-key inputs** — Multi-input requires all UTXOs controlled by one key
 - **Mainnet only** — No testnet support
-- **Single API source** — Generator uses WhatsOnChain; no multi-source verification
+- **Two API sources** — Multi-source uses WhatsOnChain and GorillaPool; additional sources require code modification
 
 ### Architectural Limitations
 
@@ -342,21 +358,24 @@ merkle-envelope-tools/
 
 ## Alternative APIs
 
+The generator currently uses these APIs for multi-source verification:
+- WhatsOnChain (default primary)
+- GorillaPool (default secondary)
+
 The envelope format works with any API providing:
 - Raw transaction hex
 - Merkle proof (nodes + index)
 - Block header (80 bytes)
 
-Alternatives to WhatsOnChain:
-- GorillaPool API
-- TAAL API
+Additional sources can be added by modifying `API_SOURCES` in generator.html:
+- TAAL API (requires API key)
 - Self-hosted ElectrumX
 
 ---
 
 ## Audit Status
 
-**This code has not been independently audited.**
+⚠️ **This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -372,7 +391,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 
