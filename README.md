@@ -35,35 +35,35 @@ The envelope format packages everything needed to verify a UTXO: raw transaction
 ## Quick Start
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Generate Envelope + Headers                           │
-│  1. Open generator.html                                        │
-│  2. Enter address or TXID to fetch UTXOs                       │
-│  3. Download envelope JSON                                     │
-│  4. (Optional) Open headers-generator.html                     │
-│  5. Download headers.bin for header chain verification         │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Generate Envelope + Headers                        │
+│  1. Open generator.html                                     │
+│  2. Enter address or TXID to fetch UTXOs                    │
+│  3. Download envelope JSON                                  │
+│  4. (Optional) Open headers-generator.html                  │
+│  5. Download headers.bin for header chain verification      │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  OFFLINE: Sign Transaction                                     │
-│  1. Open signer.html (disconnect from internet first)          │
+┌─────────────────────────────────────────────────────────────┐
+│  OFFLINE: Sign Transaction                                  │
+│  1. Open signer.html (disconnect from internet first)       │
 │  2. Load headers.bin (optional, for header chain verification) │
-│  3. Load envelope(s)                                           │
-│  4. Enter WIF private key                                      │
-│  5. Set destination address and amount                         │
-│  6. Review and confirm                                         │
-│  7. Copy or download signed transaction hex                    │
-└────────────────────────────────────────────────────────────────┘
+│  3. Load envelope(s)                                        │
+│  4. Enter WIF private key                                   │
+│  5. Set destination address and amount                      │
+│  6. Review and confirm                                      │
+│  7. Copy or download signed transaction hex                 │
+└─────────────────────────────────────────────────────────────┘
                               │
                               │ Transfer via USB
                               ▼
-┌────────────────────────────────────────────────────────────────┐
-│  ONLINE: Broadcast                                             │
-│  • Paste hex at whatsonchain.com/broadcast                     │
-│  • Or submit to any BSV node                                   │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  ONLINE: Broadcast                                          │
+│  • Paste hex at whatsonchain.com/broadcast                  │
+│  • Or submit to any BSV node                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -262,11 +262,12 @@ The format works with any API providing raw transaction hex, Merkle proof, and b
 | lib/secp256k1.js | `fc2d03baff7e802a8aed8e49a59c6b044089f9f585e1a1c9fe281b73da0e3e2b` |
 | lib/sighash.js | `297151d898312ac0287abac527902ab4dec22804bbe1b782d4785bbbe789892f` |
 | lib/headers.js | `302dff30d54318c7c975044a716481d9a564c3f313c6e6e4057997a3382d5c74` |
+| lib/snapshot.js | `03e4010677d5bfe40d1273be6e075c760c380b2ada6c471d7a743f6f303c6954` |
 | generator.html | `d24c73016d636e64eb94ae68ca17aa5c17f69be223a41ae819f054d708884ca1` |
 | headers-generator.html | `deef130a41ab70141ba96070764ed45de65112978443c2240716adafcdf93ae1` |
 | verifier.html | `3258fb9c69ac95e390756527082062fb520bafea6ee5dd7e1061170176a4c0d5` |
 | signer.html | `3be3b36eef89018946fbf5661297b36d8d867f7a62d85358829504dce3fc9033` |
-| tests.html | `be2597281b3a05208a9c8bdd00c317dc67923dffcac6cc110ab46a189a3457cf` |
+| tests.html | `b3deeaf68b316cbed7bba33e9480dd41e21e52c85f4002f79dc4a58136c66844` |
 
 ### How to Verify
 
@@ -374,7 +375,7 @@ To add a new source, extend `API_SOURCES` in generator.html with the endpoint co
 
 ## Audit Status
 
-**This code has not been independently audited.**
+⚠️ **This code has not been independently audited.**
 
 Review the source before use with significant funds. The test suite validates cryptographic correctness but cannot guarantee absence of all bugs.
 
@@ -390,7 +391,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
 This software handles cryptographic keys and financial transactions. Loss of funds due to bugs, misuse, or misunderstanding is possible. Users assume all risk.
 

@@ -10,6 +10,7 @@
   <script src="lib/secp256k1.js"></script>
   <script src="lib/sighash.js"></script>
   <script src="lib/headers.js"></script>
+  <script src="lib/snapshot.js"></script>
   <style>
     :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --success: #2f9e44; --danger: #e03131; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -492,6 +493,139 @@
     });
 
     // ==========================================
+    // Snapshot tests
+    // ==========================================
+    test('buildCanonicalMessage: deterministic output', () => {
+      const snapshot = {
+        version: 1,
+        startHeight: 100,
+        endHeight: 101,
+        anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80),
+        cumulativeWork: '00'.repeat(32),
+        timestamp: 1700000000
+      };
+      const msg1 = buildCanonicalMessage(snapshot);
+      const msg2 = buildCanonicalMessage(snapshot);
+      assertEqual(bytesToHex(msg1), bytesToHex(msg2));
+      assertEqual(msg1.length, 32);
+      return true;
+    });
+
+    test('buildCanonicalMessage: different inputs produce different hashes', () => {
+      const snapshot1 = {
+        version: 1, startHeight: 100, endHeight: 101, anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80), cumulativeWork: '00'.repeat(32), timestamp: 1700000000
+      };
+      const snapshot2 = {
+        version: 1, startHeight: 101, endHeight: 102, anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80), cumulativeWork: '00'.repeat(32), timestamp: 1700000000
+      };
+      const msg1 = buildCanonicalMessage(snapshot1);
+      const msg2 = buildCanonicalMessage(snapshot2);
+      assertEqual(bytesToHex(msg1) !== bytesToHex(msg2), true);
+      return true;
+    });
+
+    test('buildCanonicalMessage: anchorHash affects hash', () => {
+      const snapshot1 = {
+        version: 1, startHeight: 100, endHeight: 101, anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80), cumulativeWork: '00'.repeat(32), timestamp: 1700000000
+      };
+      const snapshot2 = {
+        version: 1, startHeight: 100, endHeight: 101, anchorHash: '11'.repeat(32),
+        headers: '00'.repeat(80), cumulativeWork: '00'.repeat(32), timestamp: 1700000000
+      };
+      const msg1 = buildCanonicalMessage(snapshot1);
+      const msg2 = buildCanonicalMessage(snapshot2);
+      assertEqual(bytesToHex(msg1) !== bytesToHex(msg2), true);
+      return true;
+    });
+
+    test('verifySnapshot: rejects unknown version', () => {
+      const snapshot = { version: 99 };
+      const result = verifySnapshot(snapshot, []);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('version'), true);
+      return true;
+    });
+
+    test('verifySnapshot: rejects future timestamp', () => {
+      const futureTime = Math.floor(Date.now() / 1000) + 10000;
+      const snapshot = {
+        version: 1,
+        startHeight: 100,
+        endHeight: 101,
+        anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80),
+        cumulativeWork: '00'.repeat(32),
+        timestamp: futureTime,
+        signerPubKey: '02' + '11'.repeat(32),
+        signature: '00'.repeat(64)
+      };
+      const result = verifySnapshot(snapshot, ['02' + '11'.repeat(32)]);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('future'), true);
+      return true;
+    });
+
+    test('verifySnapshot: rejects untrusted signer', () => {
+      const snapshot = {
+        version: 1,
+        startHeight: 100,
+        endHeight: 101,
+        anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80),
+        cumulativeWork: '00'.repeat(32),
+        timestamp: 1700000000,
+        signerPubKey: '02' + '11'.repeat(32),
+        signature: '00'.repeat(64)
+      };
+      const result = verifySnapshot(snapshot, ['02' + '22'.repeat(32)]);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('trusted'), true);
+      return true;
+    });
+
+    test('verifySnapshot: rejects header count mismatch', () => {
+      const snapshot = {
+        version: 1,
+        startHeight: 100,
+        endHeight: 102,
+        anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80),
+        cumulativeWork: '00'.repeat(32),
+        timestamp: 1700000000,
+        signerPubKey: '02' + '11'.repeat(32),
+        signature: '00'.repeat(64)
+      };
+      const result = verifySnapshot(snapshot, ['02' + '11'.repeat(32)]);
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('mismatch'), true);
+      return true;
+    });
+
+    test('verifySnapshot: rejects mismatched anchor hash', () => {
+      const snapshot = {
+        version: 1,
+        startHeight: 100,
+        endHeight: 101,
+        anchorHash: '00'.repeat(32),
+        headers: '00'.repeat(80),
+        cumulativeWork: '00'.repeat(32),
+        timestamp: 1700000000,
+        signerPubKey: '02' + '11'.repeat(32),
+        signature: '00'.repeat(64)
+      };
+      const result = verifySnapshot(snapshot, ['02' + '11'.repeat(32)], {
+        expectedAnchorHash: '11'.repeat(32)
+      });
+      assertEqual(result.valid, false);
+      assertEqual(result.reason.includes('Anchor'), true);
+      return true;
+    });
+
+    // ==========================================
     // Render results
     // ==========================================
     function render() {
@@ -504,7 +638,8 @@
         'encoding.js': [],
         'secp256k1.js': [],
         'sighash.js': [],
-        'headers.js': []
+        'headers.js': [],
+        'snapshot.js': []
       };
 
       for (const r of results) {
@@ -516,8 +651,9 @@
           groups['secp256k1.js'].push(r);
         } else if (r.name.startsWith('sighash') || r.name.startsWith('compute') || r.name.startsWith('build')) {
           groups['sighash.js'].push(r);
+        } else if (r.name.startsWith('buildCanonical') || r.name.startsWith('verifySnapshot') || r.name.startsWith('createSnapshot')) {
+          groups['snapshot.js'].push(r);
         } else {
-          // headers.js includes: verifyMerkleProof, checkMerkleProofSafe, validateDifficultyFloor, validateHeaderDifficulty
           groups['headers.js'].push(r);
         }
       }
