@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'none';">
+  <title>Mainnet SPV Verification Tests — Merkle Envelope Tools</title>
+  
+  <!-- Core Libraries -->
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/secp256k1.js"></script>
+  <script src="lib/headers.js"></script>
+  <script src="lib/mainnet-vectors.js"></script>
+  
+  <style>
+    :root {
+      --bg: #fff;
+      --surface: #f8f9fa;
+      --border: #dee2e6;
+      --text: #212529;
+      --text-2: #495057;
+      --text-3: #868e96;
+      --success: #2f9e44;
+      --success-bg: #d3f9d8;
+      --danger: #e03131;
+      --danger-bg: #ffe3e3;
+      --warning: #e67700;
+      --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 32px 24px;
+      max-width: 900px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+    
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    h2 { font-size: 1.25rem; font-weight: 600; margin: 32px 0 16px 0; color: var(--text-2); }
+    h3 { font-size: 1rem; font-weight: 600; margin: 16px 0 8px 0; }
+    
+    .subtitle { color: var(--text-2); margin-bottom: 24px; }
+    
+    .summary {
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+    
+    .summary.pass {
+      background: var(--success-bg);
+      border: 2px solid var(--success);
+      color: var(--success);
+    }
+    
+    .summary.fail {
+      background: var(--danger-bg);
+      border: 2px solid var(--danger);
+      color: var(--danger);
+    }
+    
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .test-group {
+      margin-bottom: 24px;
+    }
+    
+    .test {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    
+    .test:last-child { border-bottom: none; }
+    
+    .test-name {
+      font-size: 0.9rem;
+      flex: 1;
+    }
+    
+    .test-status {
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 2px 10px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    
+    .test-status.pass {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    
+    .test-status.fail {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+    
+    .test-detail {
+      font-size: 0.8rem;
+      color: var(--text-3);
+      margin-top: 4px;
+      font-family: var(--mono);
+      word-break: break-all;
+    }
+    
+    .test-detail.error {
+      color: var(--danger);
+    }
+    
+    pre {
+      background: #f1f3f5;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    
+    code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: #f1f3f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 8px;
+      font-size: 0.85rem;
+      margin: 12px 0;
+    }
+    
+    .info-label { color: var(--text-3); }
+    .info-value { font-family: var(--mono); word-break: break-all; }
+    
+    .btn {
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      margin-right: 8px;
+    }
+    
+    .btn-primary {
+      background: #228be6;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #1c7ed6;
+    }
+    
+    footer {
+      text-align: center;
+      color: var(--text-3);
+      font-size: 0.8rem;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+    
+    footer a { color: #228be6; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Mainnet SPV Verification Tests</h1>
+  <p class="subtitle">End-to-end verification using real BSV mainnet transactions</p>
+  
+  <div>
+    <button class="btn btn-primary" id="run-tests">▶ Run All Tests</button>
+  </div>
+  
+  <div id="loading" style="display: none; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
+    <div style="font-weight: 600; margin-bottom: 12px;">Running Tests...</div>
+    <div id="progress-status" style="color: var(--text-2); font-size: 0.9rem;"></div>
+    <div style="background: var(--border); height: 8px; border-radius: 4px; margin-top: 12px; overflow: hidden;">
+      <div id="progress-bar" style="background: var(--success); height: 100%; width: 0%; transition: width 0.2s;"></div>
+    </div>
+  </div>
+  
+  <div id="error-box" style="display: none; padding: 20px; background: var(--danger-bg); border: 2px solid var(--danger); border-radius: 8px; margin: 20px 0; color: var(--danger);"></div>
+  
+  <div id="summary" class="summary" style="display: none;"></div>
+  
+  <div id="results"></div>
+  
+  <script>
+  (function() {
+    'use strict';
+    
+    // Check if required libraries loaded
+    function checkDependencies() {
+      const missing = [];
+      if (typeof hash256 === 'undefined') missing.push('crypto.js (hash256)');
+      if (typeof bytesToHex === 'undefined') missing.push('encoding.js (bytesToHex)');
+      if (typeof verifyMerkleProof === 'undefined') missing.push('headers.js (verifyMerkleProof)');
+      if (typeof MAINNET_TEST_VECTORS === 'undefined') missing.push('mainnet-vectors.js (MAINNET_TEST_VECTORS)');
+      return missing;
+    }
+    
+    // ============================================================
+    // Test Framework
+    // ============================================================
+    
+    let testResults = [];
+    let currentGroup = '';
+    let totalTests = 0;
+    let completedTests = 0;
+    
+    function updateProgress(status) {
+      const pct = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0;
+      document.getElementById('progress-bar').style.width = pct + '%';
+      document.getElementById('progress-status').textContent = status;
+    }
+    
+    function startGroup(name) {
+      currentGroup = name;
+      updateProgress('Checking: ' + name + '...');
+    }
+    
+    function test(name, fn) {
+      completedTests++;
+      try {
+        const result = fn();
+        testResults.push({
+          group: currentGroup,
+          name: name,
+          pass: result.pass,
+          detail: result.detail || '',
+          error: null
+        });
+      } catch (e) {
+        testResults.push({
+          group: currentGroup,
+          name: name,
+          pass: false,
+          detail: '',
+          error: e.message
+        });
+      }
+    }
+    
+    function assertEqual(actual, expected, message) {
+      if (actual !== expected) {
+        throw new Error(`${message}: expected "${expected}", got "${actual}"`);
+      }
+    }
+    
+    function assertTrue(condition, message) {
+      if (!condition) {
+        throw new Error(message || 'Assertion failed');
+      }
+    }
+    
+    function assertFalse(condition, message) {
+      if (condition) {
+        throw new Error(message || 'Expected false but got true');
+      }
+    }
+    
+    // ============================================================
+    // SPV Verification Functions
+    // ============================================================
+    
+    /**
+     * Compute TXID from raw transaction
+     * TXID = reverse(SHA256d(rawTx))
+     */
+    function computeTxid(rawTxHex) {
+      const hash = hash256(rawTxHex);
+      return reverseHex(bytesToHex(hash));
+    }
+    
+    /**
+     * Verify block header proof-of-work
+     * Header hash must be below target derived from nBits
+     */
+    function verifyHeaderPoW(headerHex) {
+      if (headerHex.length !== 160) {
+        return { valid: false, reason: 'Header must be 80 bytes (160 hex chars)' };
+      }
+      
+      const header = parseHeader(headerHex);
+      const headerHash = hashHeader(headerHex);
+      const target = targetFromNBits(header.nBits);
+      const hashValue = BigInt('0x' + headerHash);
+      
+      const valid = hashValue <= target;
+      
+      return {
+        valid: valid,
+        headerHash: headerHash,
+        target: target.toString(16),
+        nBits: '0x' + header.nBits.toString(16)
+      };
+    }
+    
+    /**
+     * Verify Merkle proof connects TXID to merkle root
+     */
+    function verifyMerkle(txid, proof, expectedMerkleRoot) {
+      // Check for CVE-2012-2459 (duplicate adjacent nodes)
+      if (!checkMerkleProofSafe(proof)) {
+        return { valid: false, reason: 'Duplicate adjacent nodes in proof (CVE-2012-2459)' };
+      }
+      
+      // Compute merkle root from proof
+      const valid = verifyMerkleProof(txid, proof, expectedMerkleRoot);
+      
+      return {
+        valid: valid,
+        expectedRoot: expectedMerkleRoot
+      };
+    }
+    
+    /**
+     * Validate header difficulty against checkpoint floor
+     */
+    function verifyDifficultyFloor(headerHex) {
+      const header = parseHeader(headerHex);
+      const target = targetFromNBits(header.nBits);
+      
+      // Floor is checkpoint nBits * 8 (tolerance)
+      const checkpointTarget = targetFromNBits(CHECKPOINT.nBits);
+      const floorTarget = checkpointTarget * 8n;
+      
+      // Lower target = harder difficulty
+      // Target must be <= floor (not too easy)
+      const valid = target <= floorTarget;
+      
+      return {
+        valid: valid,
+        target: target,
+        floor: floorTarget,
+        nBits: header.nBits
+      };
+    }
+    
+    /**
+     * Extract merkle root from block header
+     */
+    function getMerkleRootFromHeader(headerHex) {
+      const header = parseHeader(headerHex);
+      return header.merkleRoot;
+    }
+    
+    // ============================================================
+    // Run Tests
+    // ============================================================
+    
+    function runAllTests() {
+      // Show loading, hide previous results
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('summary').style.display = 'none';
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('error-box').style.display = 'none';
+      document.getElementById('progress-bar').style.width = '0%';
+      document.getElementById('progress-status').textContent = 'Initializing...';
+      
+      // Check dependencies first
+      const missing = checkDependencies();
+      if (missing.length > 0) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error-box').style.display = 'block';
+        document.getElementById('error-box').innerHTML = '<strong>Missing dependencies:</strong><br>' + missing.join('<br>') + '<br><br>Make sure all lib/*.js files are in the same directory.';
+        return;
+      }
+      
+      // Reset counters
+      testResults = [];
+      completedTests = 0;
+      totalTests = 23; // Total number of tests
+      
+      // Run test groups sequentially with delays for visual feedback
+      const groups = [
+        runTestGroup1,
+        runTestGroup2,
+        runTestGroup3,
+        runTestGroup4,
+        runTestGroup5,
+        runTestGroup6
+      ];
+      
+      let currentGroup = 0;
+      
+      function runNextGroup() {
+        if (currentGroup >= groups.length) {
+          // Done - show results
+          document.getElementById('loading').style.display = 'none';
+          renderResults();
+          return;
+        }
+        
+        try {
+          groups[currentGroup]();
+          currentGroup++;
+          setTimeout(runNextGroup, 100);
+        } catch (e) {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('error-box').style.display = 'block';
+          document.getElementById('error-box').innerHTML = '<strong>Error in test group ' + currentGroup + ':</strong><br>' + e.message + '<br><br><pre>' + (e.stack || '') + '</pre>';
+        }
+      }
+      
+      setTimeout(runNextGroup, 100);
+    }
+    
+    function runTestGroup1() {
+      // ========================================
+      // GROUP 1: Genesis Block Verification
+      // ========================================
+      startGroup('Genesis Block (Block 0)');
+      
+      const v1 = MAINNET_TEST_VECTORS.vector1;
+      
+      test('Genesis: TXID matches raw transaction', () => {
+        const computedTxid = computeTxid(v1.rawTx);
+        const pass = computedTxid.toLowerCase() === v1.txid.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Computed: ${computedTxid.slice(0, 16)}...`
+        };
+      });
+      
+      test('Genesis: Block header PoW is valid', () => {
+        const result = verifyHeaderPoW(v1.blockHeader);
+        return {
+          pass: result.valid,
+          detail: `Hash: ${result.headerHash.slice(0, 16)}...`
+        };
+      });
+      
+      test('Genesis: Block hash matches expected', () => {
+        const computedHash = hashHeader(v1.blockHeader);
+        const pass = computedHash.toLowerCase() === v1.blockHash.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Computed: ${computedHash.slice(0, 16)}...`
+        };
+      });
+      
+      test('Genesis: Merkle root in header matches TXID (single-tx block)', () => {
+        const merkleRoot = getMerkleRootFromHeader(v1.blockHeader);
+        // For single-tx block, merkle root == txid
+        const pass = merkleRoot.toLowerCase() === v1.txid.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Merkle root: ${merkleRoot.slice(0, 16)}...`
+        };
+      });
+      
+      test('Genesis: Empty Merkle proof is valid for single-tx block', () => {
+        const result = verifyMerkle(v1.txid, v1.merkleProof, v1.merkleRoot);
+        return {
+          pass: result.valid,
+          detail: 'Single transaction: TXID == Merkle root'
+        };
+      });
+    }
+    
+    function runTestGroup2() {
+      // ========================================
+      // GROUP 2: Block 1 (First Mined Block)
+      // ========================================
+      startGroup('Block 1 (First Mined Block)');
+      
+      const v2 = MAINNET_TEST_VECTORS.vector2;
+      
+      test('Block 1: TXID matches raw transaction', () => {
+        const computedTxid = computeTxid(v2.rawTx);
+        const pass = computedTxid.toLowerCase() === v2.txid.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Computed: ${computedTxid.slice(0, 16)}...`
+        };
+      });
+      
+      test('Block 1: Block header PoW is valid', () => {
+        const result = verifyHeaderPoW(v2.blockHeader);
+        return {
+          pass: result.valid,
+          detail: `nBits: ${result.nBits}`
+        };
+      });
+      
+      test('Block 1: Block hash matches expected', () => {
+        const computedHash = hashHeader(v2.blockHeader);
+        const pass = computedHash.toLowerCase() === v2.blockHash.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Hash: ${computedHash.slice(0, 16)}...`
+        };
+      });
+      
+      test('Block 1: PrevHash links to genesis block', () => {
+        const header = parseHeader(v2.blockHeader);
+        const genesisHash = MAINNET_TEST_VECTORS.vector1.blockHash;
+        const pass = header.prevBlock.toLowerCase() === genesisHash.toLowerCase();
+        return {
+          pass: pass,
+          detail: `PrevHash: ${header.prevBlock.slice(0, 16)}...`
+        };
+      });
+    }
+    
+    function runTestGroup3() {
+      // ========================================
+      // GROUP 3: Block 170 (First P2P Transaction)
+      // ========================================
+      startGroup('Block 170 (Satoshi → Hal Finney)');
+      
+      const v3 = MAINNET_TEST_VECTORS.vector3;
+      
+      test('Block 170: Block header PoW is valid', () => {
+        const result = verifyHeaderPoW(v3.blockHeader);
+        return {
+          pass: result.valid,
+          detail: `nBits: ${result.nBits}`
+        };
+      });
+      
+      test('Block 170: Block hash matches expected', () => {
+        const computedHash = hashHeader(v3.blockHeader);
+        const pass = computedHash.toLowerCase() === v3.blockHash.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Hash: ${computedHash.slice(0, 16)}...`
+        };
+      });
+      
+      test('Block 170: Merkle root extracted correctly', () => {
+        const merkleRoot = getMerkleRootFromHeader(v3.blockHeader);
+        const pass = merkleRoot.toLowerCase() === v3.merkleRoot.toLowerCase();
+        return {
+          pass: pass,
+          detail: `Root: ${merkleRoot.slice(0, 16)}...`
+        };
+      });
+      
+      test('Block 170: Merkle proof connects coinbase to root', () => {
+        const merkleRoot = getMerkleRootFromHeader(v3.blockHeader);
+        const result = verifyMerkle(v3.txid, v3.merkleProof, merkleRoot);
+        return {
+          pass: result.valid,
+          detail: `Proof depth: ${v3.merkleProof.length} node (2-tx block)`
+        };
+      });
+      
+      test('Block 170: Merkle proof passes CVE-2012-2459 check', () => {
+        const safe = checkMerkleProofSafe(v3.merkleProof);
+        return {
+          pass: safe,
+          detail: 'No duplicate adjacent nodes'
+        };
+      });
+    }
+    
+    function runTestGroup4() {
+      // ========================================
+      // GROUP 4: Invalid Vectors (Must FAIL)
+      // ========================================
+      startGroup('Invalid Vectors (Must Reject)');
+      
+      test('FAIL: Modified Merkle branch is rejected', () => {
+        const invalid = INVALID_TEST_VECTORS.invalidMerkleProof;
+        const merkleRoot = getMerkleRootFromHeader(invalid.blockHeader);
+        const result = verifyMerkle(invalid.txid, invalid.merkleProof, merkleRoot);
+        // This SHOULD fail
+        const pass = result.valid === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected corrupted proof' : 'ERROR: Accepted invalid proof!'
+        };
+      });
+      
+      test('FAIL: Invalid PoW header is rejected', () => {
+        const invalid = INVALID_TEST_VECTORS.invalidPoW;
+        const result = verifyHeaderPoW(invalid.blockHeader);
+        // This SHOULD fail
+        const pass = result.valid === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected invalid PoW' : 'ERROR: Accepted invalid PoW!'
+        };
+      });
+      
+      test('FAIL: Difficulty below floor is rejected', () => {
+        const invalid = INVALID_TEST_VECTORS.difficultyTooLow;
+        const result = verifyDifficultyFloor(invalid.blockHeader);
+        // This SHOULD fail (difficulty too easy)
+        const pass = result.valid === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected low difficulty' : 'ERROR: Accepted low difficulty!'
+        };
+      });
+      
+      test('FAIL: TXID mismatch with raw tx is detected', () => {
+        const invalid = INVALID_TEST_VECTORS.txidMismatch;
+        const computedTxid = computeTxid(invalid.rawTx);
+        // Computed TXID should NOT match claimed TXID
+        const mismatch = computedTxid.toLowerCase() !== invalid.txid.toLowerCase();
+        return {
+          pass: mismatch,
+          detail: mismatch ? 'Correctly detected TXID mismatch' : 'ERROR: Failed to detect mismatch!'
+        };
+      });
+      
+      test('FAIL: Duplicate Merkle nodes (CVE-2012-2459) is rejected', () => {
+        const invalid = INVALID_TEST_VECTORS.duplicateNodes;
+        const safe = checkMerkleProofSafe(invalid.merkleProof);
+        // This SHOULD fail
+        const pass = safe === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected CVE-2012-2459' : 'ERROR: Accepted duplicate nodes!'
+        };
+      });
+      
+      test('FAIL: Wildcard at non-leaf position (CVE-2012-2459)', () => {
+        const invalid = INVALID_TEST_VECTORS.wildcardNonLeaf;
+        const safe = checkMerkleProofSafe(invalid.merkleProof);
+        const pass = safe === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected non-leaf wildcard' : 'ERROR: Accepted non-leaf wildcard!'
+        };
+      });
+      
+      test('FAIL: Wildcard with wrong position (CVE-2012-2459)', () => {
+        const invalid = INVALID_TEST_VECTORS.wildcardWrongPos;
+        const safe = checkMerkleProofSafe(invalid.merkleProof);
+        const pass = safe === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected wildcard pos=L' : 'ERROR: Accepted wildcard pos=L!'
+        };
+      });
+      
+      test('FAIL: Multiple wildcards (CVE-2012-2459)', () => {
+        const invalid = INVALID_TEST_VECTORS.multipleWildcards;
+        const safe = checkMerkleProofSafe(invalid.merkleProof);
+        const pass = safe === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected multiple wildcards' : 'ERROR: Accepted multiple wildcards!'
+        };
+      });
+      
+      test('FAIL: Wildcard rejected in verifyMerkleProof by default', () => {
+        const txid = MAINNET_TEST_VECTORS.vector3.txid;
+        const merkleRoot = MAINNET_TEST_VECTORS.vector3.merkleRoot;
+        const proofWithWildcard = [{ hash: '*', pos: 'R' }];
+        let rejected = false;
+        try {
+          verifyMerkleProof(txid, proofWithWildcard, merkleRoot);
+        } catch (e) {
+          rejected = e.message.includes('Wildcard not allowed');
+        }
+        return {
+          pass: rejected,
+          detail: rejected ? 'Wildcard rejected by default' : 'ERROR: Wildcard accepted!'
+        };
+      });
+      
+      test('FAIL: Prototype pollution protection', () => {
+        // Create object without own properties (inherits from prototype)
+        const emptyObj = Object.create({ hash: 'abc', pos: 'R' });
+        const maliciousProof = [emptyObj];
+        const safe = checkMerkleProofSafe(maliciousProof);
+        const pass = safe === false;
+        return {
+          pass: pass,
+          detail: pass ? 'Correctly rejected inherited properties' : 'ERROR: Accepted prototype pollution!'
+        };
+      });
+    }
+    
+    function runTestGroup5() {
+      // ========================================
+      // GROUP 5: Checkpoint Verification
+      // ========================================
+      startGroup('Checkpoint Verification');
+      
+      test('Checkpoint height is correct', () => {
+        const pass = CHECKPOINT.height === 935000;
+        return {
+          pass: pass,
+          detail: `Height: ${CHECKPOINT.height}`
+        };
+      });
+      
+      test('Checkpoint hash format is valid', () => {
+        const valid = /^[0-9a-f]{64}$/i.test(CHECKPOINT.hash);
+        return {
+          pass: valid,
+          detail: `Hash: ${CHECKPOINT.hash.slice(0, 16)}...`
+        };
+      });
+      
+      test('Checkpoint nBits encodes valid target', () => {
+        const target = targetFromNBits(CHECKPOINT.nBits);
+        const valid = target > 0n;
+        return {
+          pass: valid,
+          detail: `nBits: 0x${CHECKPOINT.nBits.toString(16)}`
+        };
+      });
+    }
+    
+    function runTestGroup6() {
+      // ========================================
+      // GROUP 6: End-to-End SPV Verification
+      // ========================================
+      startGroup('End-to-End SPV Workflow');
+      
+      test('E2E: Full genesis block verification pipeline', () => {
+        const g = MAINNET_TEST_VECTORS.vector2;
+        
+        // Step 1: Verify TXID matches raw tx
+        const computedTxid = computeTxid(g.rawTx);
+        if (computedTxid.toLowerCase() !== g.txid.toLowerCase()) {
+          throw new Error('TXID mismatch');
+        }
+        
+        // Step 2: Verify header PoW
+        const pow = verifyHeaderPoW(g.blockHeader);
+        if (!pow.valid) {
+          throw new Error('Header PoW invalid');
+        }
+        
+        // Step 3: Verify block hash
+        const blockHash = hashHeader(g.blockHeader);
+        if (blockHash.toLowerCase() !== g.blockHash.toLowerCase()) {
+          throw new Error('Block hash mismatch');
+        }
+        
+        // Step 4: Verify Merkle proof
+        const merkleRoot = getMerkleRootFromHeader(g.blockHeader);
+        const merkle = verifyMerkle(g.txid, g.merkleProof, merkleRoot);
+        if (!merkle.valid) {
+          throw new Error('Merkle proof invalid');
+        }
+        
+        return {
+          pass: true,
+          detail: 'All 4 verification steps passed'
+        };
+      });
+      
+      test('E2E: Full WOC example verification pipeline', () => {
+        const w = MAINNET_TEST_VECTORS.vector1;
+        
+        // Step 1: Verify header PoW
+        const pow = verifyHeaderPoW(w.blockHeader);
+        if (!pow.valid) {
+          throw new Error('Header PoW invalid');
+        }
+        
+        // Step 2: Verify Merkle proof CVE check
+        if (!checkMerkleProofSafe(w.merkleProof)) {
+          throw new Error('Merkle proof has duplicate nodes');
+        }
+        
+        // Step 3: Verify Merkle proof connects to root
+        const merkleRoot = getMerkleRootFromHeader(w.blockHeader);
+        const merkle = verifyMerkle(w.txid, w.merkleProof, merkleRoot);
+        if (!merkle.valid) {
+          throw new Error('Merkle proof invalid');
+        }
+        
+        return {
+          pass: true,
+          detail: 'All verification steps passed'
+        };
+      });
+    }
+    
+    function renderResults() {
+      const passed = testResults.filter(t => t.pass).length;
+      const failed = testResults.filter(t => !t.pass).length;
+      const total = testResults.length;
+      
+      // Summary
+      const summaryEl = document.getElementById('summary');
+      summaryEl.style.display = 'block';
+      summaryEl.className = 'summary ' + (failed === 0 ? 'pass' : 'fail');
+      summaryEl.innerHTML = failed === 0
+        ? `✓ All ${total} tests passed`
+        : `✗ ${failed} of ${total} tests failed`;
+      
+      // Group results
+      const groups = {};
+      for (const result of testResults) {
+        if (!groups[result.group]) {
+          groups[result.group] = [];
+        }
+        groups[result.group].push(result);
+      }
+      
+      // Render
+      const resultsEl = document.getElementById('results');
+      resultsEl.innerHTML = '';
+      
+      for (const [groupName, tests] of Object.entries(groups)) {
+        const groupPassed = tests.every(t => t.pass);
+        
+        const section = document.createElement('div');
+        section.className = 'section';
+        section.innerHTML = `
+          <div class="section-title">
+            <span>${groupPassed ? '✓' : '✗'}</span>
+            <span>${groupName}</span>
+          </div>
+        `;
+        
+        for (const test of tests) {
+          const testEl = document.createElement('div');
+          testEl.className = 'test';
+          testEl.innerHTML = `
+            <div class="test-name">
+              ${test.name}
+              ${test.detail ? `<div class="test-detail">${test.detail}</div>` : ''}
+              ${test.error ? `<div class="test-detail error">Error: ${test.error}</div>` : ''}
+            </div>
+            <div class="test-status ${test.pass ? 'pass' : 'fail'}">
+              ${test.pass ? 'PASS' : 'FAIL'}
+            </div>
+          `;
+          section.appendChild(testEl);
+        }
+        
+        resultsEl.appendChild(section);
+      }
+    }
+    
+    // ============================================================
+    // Initialize
+    // ============================================================
+    
+    document.getElementById('run-tests').addEventListener('click', runAllTests);
+    
+    // Auto-run on load
+    runAllTests();
+    
+  })();
+  </script>
+  
+  <footer style="text-align: center; color: #868e96; font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid #dee2e6;">
+    <a href="generator.html" style="color: #228be6; text-decoration: none;">Generator</a> · 
+    <a href="headers-generator.html" style="color: #228be6; text-decoration: none;">Headers</a> · 
+    <a href="verifier.html" style="color: #228be6; text-decoration: none;">Verifier</a> · 
+    <a href="signer.html" style="color: #228be6; text-decoration: none;">Signer</a> · 
+    <a href="tests.html" style="color: #228be6; text-decoration: none;">Tests</a> · 
+    Mainnet
+  </footer>
+</body>
+</html>
