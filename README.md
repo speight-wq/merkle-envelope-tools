@@ -26,6 +26,16 @@ headers-generator.html           → Set destination + amount
  → Download headers.bin          → Download signed tx hex
          │                                │
          └────── USB transfer ────────────┘
+
+                                AUDIT / DEBUG
+                                ─────────────────────────────
+                                explorer.html
+                                 → Paste envelope
+                                 → Step-by-step verification
+                                 → Export evidence report
+
+                                verifier.html
+                                 → Quick pass/fail check
 ```
 
 ---
