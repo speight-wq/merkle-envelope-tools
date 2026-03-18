@@ -169,7 +169,8 @@
           merkleProof: (txid) => `/tx/${txid}/proof/tsc`,
           merkleProofLegacy: (txid) => `/tx/${txid}/proof`,
           blockHeader: (hash) => `/block/${hash}/header`,
-          utxos: (addr) => `/address/${addr}/unspent`
+          utxos: (addr) => `/address/${addr}/unspent/all`,  // New endpoint (replaces deprecated ElectrumX)
+          utxosLegacy: (addr) => `/address/${addr}/unspent` // Legacy ElectrumX (deprecated)
         }
       }
       // GorillaPool removed - does not support tx lookup via REST API
@@ -215,6 +216,8 @@
       const res = await fetchWithTimeout(url, timeout);
       if (!res.ok) {
         if (res.status === 404) return null;
+        if (res.status === 429) throw new Error('Rate limited (429) - wait a moment and retry');
+        if (res.status === 503) throw new Error('Service unavailable (503) - API may be down');
         throw new Error('HTTP ' + res.status);
       }
       return res.json();
@@ -832,15 +835,50 @@
       try {
         showProgress(10, 'Fetching UTXOs...');
 
-        // Fetch UTXOs (always from primary source for address lookup)
+        // Fetch UTXOs with retry
         const primarySource = API_SOURCES[ENABLED_SOURCES[0]];
-        const utxos = await fetchJson(
-          primarySource.baseUrl + primarySource.endpoints.utxos(address),
-          primarySource.timeout
-        );
+        const utxoUrl = primarySource.baseUrl + primarySource.endpoints.utxos(address);
+        
+        let utxos = null;
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const response = await fetchJson(utxoUrl, primarySource.timeout);
+            // New API returns { address, script, result: [...] }
+            // Legacy API returns [...] directly
+            if (response && response.result && Array.isArray(response.result)) {
+              // New format - extract from result array
+              utxos = response.result.map(u => ({
+                tx_hash: u.tx_hash,
+                tx_pos: u.tx_pos,
+                value: u.value,
+                height: u.height || 0
+              }));
+            } else if (Array.isArray(response)) {
+              // Legacy format - use directly
+              utxos = response;
+            } else {
+              utxos = [];
+            }
+            break;
+          } catch (e) {
+            lastError = e;
+            if (attempt < 3) {
+              showProgress(10, 'Retry ' + attempt + '/3...');
+              await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
+          }
+        }
+        
+        if (utxos === null && lastError) {
+          showError('API error: ' + lastError.message);
+          hideProgress();
+          return;
+        }
         
         if (!utxos || utxos.length === 0) {
-          showError('No UTXOs found for this address');
+          showError('No UTXOs found for this address (may be spent or API issue)');
           hideProgress();
           return;
         }
@@ -966,6 +1004,8 @@
     <a href="headers-generator.html" style="color: #228be6; text-decoration: none;">Headers</a> · 
     <a href="verifier.html" style="color: #228be6; text-decoration: none;">Verifier</a> · 
     <a href="signer.html" style="color: #228be6; text-decoration: none;">Signer</a> · 
+    
+    <a href="explorer.html" style="color: #228be6; text-decoration: none;">Explorer</a> · 
     <a href="tests.html" style="color: #228be6; text-decoration: none;">Tests</a> · 
     <a href="tests-mainnet.html" style="color: #228be6; text-decoration: none;">Mainnet</a>
   </footer>
