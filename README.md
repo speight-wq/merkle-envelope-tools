@@ -246,8 +246,6 @@ hop_serialized = txid (32) || vout (4, LE) || satoshis (8, LE) ||
 **Determinism Guarantee:**
 Same input bytes → identical hashes across all implementations. No timestamps, randomness, or environment-dependent values in hash derivations.
 
-See `CHAIN-PROTOCOL-SPEC.md` for complete specification.
-
 ---
 
 ## Mainnet Test Vectors
