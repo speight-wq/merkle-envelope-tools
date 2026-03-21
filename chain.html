@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'none';">
+  <title>Proof Chain — Merkle Envelope Tools</title>
+  <style>
+    :root {
+      --bg: #fff; --surface: #f8f9fa; --border: #dee2e6;
+      --text: #212529; --text-2: #495057; --text-3: #868e96;
+      --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8;
+      --danger: #e03131; --danger-bg: #ffe3e3; --warning: #e67700;
+      --demo: #7048e8; --demo-bg: #e5dbff;
+      --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { overflow-x: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; padding: 16px; max-width: 960px; margin: 0 auto; font-size: 14px; overflow-x: hidden; }
+    @media (max-width: 480px) { body { padding: 12px; font-size: 13px; } }
+    
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+    h1 { font-size: 1.4rem; font-weight: 600; }
+    .subtitle { color: var(--text-2); font-size: 0.85rem; }
+    .badge { padding: 4px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.7rem; font-weight: 600; color: var(--success); }
+    
+    .demo-banner { background: var(--demo-bg); border: 2px solid var(--demo); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .demo-label { background: var(--demo); color: white; padding: 3px 8px; border-radius: 3px; font-size: 0.7rem; font-weight: 700; }
+    .demo-desc { color: var(--demo); font-size: 0.8rem; }
+    .demo-banner.failure { background: var(--danger-bg); border-color: var(--danger); }
+    .demo-banner.failure .demo-label { background: var(--danger); }
+    .demo-banner.failure .demo-desc { color: var(--danger); }
+    
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 14px; overflow: hidden; }
+    @media (max-width: 480px) { .section { padding: 10px; } }
+    .section-title { font-size: 0.75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+    
+    .input { width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 0.75rem; color: var(--text); }
+    .input:focus { outline: none; border-color: var(--accent); }
+    textarea.input { min-height: 120px; resize: vertical; }
+    
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .btn { padding: 7px 14px; border-radius: 4px; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn:hover { filter: brightness(0.95); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-sm { padding: 4px 10px; font-size: 0.7rem; }
+    
+    .verdict { padding: 14px 18px; border-radius: 6px; font-weight: 600; margin-bottom: 14px; overflow-wrap: break-word; }
+    .verdict.valid { background: var(--success-bg); border: 2px solid var(--success); color: var(--success); }
+    .verdict.invalid { background: var(--danger-bg); border: 2px solid var(--danger); color: var(--danger); }
+    .verdict-title { font-size: 1rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .verdict-meta { font-size: 0.7rem; font-weight: normal; color: var(--text-2); font-family: var(--mono); line-height: 1.8; word-break: break-all; }
+    .verdict-meta .label { color: var(--text-3); display: block; margin-bottom: 2px; }
+    @media (min-width: 480px) { .verdict-meta .label { display: inline-block; min-width: 180px; margin-bottom: 0; } }
+    
+    .chain-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .summary-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px; text-align: center; }
+    .summary-label { font-size: 0.65rem; color: var(--text-3); text-transform: uppercase; margin-bottom: 4px; }
+    .summary-value { font-size: 1rem; font-weight: 600; font-family: var(--mono); }
+    
+    .failure-box { background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 4px; padding: 12px; margin-bottom: 14px; }
+    .failure-title { font-weight: 600; color: var(--danger); margin-bottom: 8px; font-size: 0.85rem; }
+    .failure-row { font-size: 0.75rem; margin-bottom: 4px; font-family: var(--mono); word-break: break-all; }
+    .failure-row .label { color: var(--text-2); display: inline-block; min-width: 100px; }
+    .byte-diff { font-family: var(--mono); font-size: 0.65rem; margin-top: 8px; background: var(--surface); padding: 8px; border-radius: 3px; overflow-x: auto; }
+    .byte-diff .match { color: var(--text-3); }
+    .byte-diff .differ { color: var(--danger); font-weight: 700; background: rgba(224,49,49,0.15); }
+    
+    .chain-view { position: relative; }
+    .chain-line { position: absolute; left: 20px; top: 0; bottom: 0; width: 2px; background: var(--border); z-index: 0; }
+    
+    .hop { position: relative; margin-bottom: 12px; padding-left: 50px; }
+    .hop:last-child { margin-bottom: 0; }
+    .hop-marker { position: absolute; left: 12px; top: 14px; width: 18px; height: 18px; border-radius: 50%; background: var(--success); border: 3px solid var(--bg); z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 0.55rem; color: white; font-weight: 700; }
+    .hop-marker.invalid { background: var(--danger); }
+    
+    .hop-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .hop-card.invalid { border-color: var(--danger); background: #fff5f5; }
+    
+    .hop-header { padding: 12px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; flex-wrap: wrap; gap: 6px; }
+    .hop-header:hover { background: var(--surface); }
+    .hop-title { font-weight: 600; font-size: 0.85rem; }
+    .hop-title .hop-num { color: var(--text-3); font-weight: normal; margin-right: 8px; }
+    .hop-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .hop-badge { font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+    .hop-badge.valid { background: var(--success-bg); color: var(--success); }
+    .hop-badge.invalid { background: var(--danger-bg); color: var(--danger); }
+    
+    .hop-summary { padding: 0 14px 12px; font-size: 0.7rem; color: var(--text-2); }
+    .hop-summary-row { display: flex; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 4px; }
+    .hop-summary-label { color: var(--text-3); }
+    .hop-summary-value { font-family: var(--mono); word-break: break-all; text-align: right; }
+    
+    .hop-details { border-top: 1px solid var(--border); padding: 14px; display: none; }
+    .hop-details.open { display: block; }
+    
+    .detail-section { margin-bottom: 12px; }
+    .detail-section:last-child { margin-bottom: 0; }
+    .detail-title { font-size: 0.7rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; margin-bottom: 6px; }
+    .detail-row { font-size: 0.7rem; margin-bottom: 3px; font-family: var(--mono); word-break: break-all; }
+    .detail-row .label { color: var(--text-3); display: inline-block; min-width: 100px; }
+    .detail-row .value { color: var(--text); }
+    .detail-row .value.valid { color: var(--success); }
+    .detail-row .value.invalid { color: var(--danger); }
+    
+    .step { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; font-size: 0.7rem; }
+    .step:last-child { margin-bottom: 0; }
+    .step.failed { background: var(--danger-bg); border-color: var(--danger); }
+    .step-header { display: flex; justify-content: space-between; align-items: center; }
+    .step-title { font-weight: 600; color: var(--text-2); }
+    .step-badge { font-size: 0.6rem; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+    .step-badge.pass { background: var(--success-bg); color: var(--success); }
+    .step-badge.fail { background: var(--danger-bg); color: var(--danger); }
+    
+    footer { text-align: center; color: var(--text-3); font-size: 0.75rem; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+    footer a { color: var(--accent); text-decoration: none; }
+    
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>Proof Chain</h1>
+      <p class="subtitle">Deterministic lineage verification</p>
+    </div>
+    <div class="badge">OFFLINE</div>
+  </header>
+  
+  <div id="demo-banner" class="demo-banner hidden">
+    <span class="demo-label">DEMO</span>
+    <span class="demo-desc" id="demo-desc"></span>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Chain Input</div>
+    <textarea class="input" id="chain-input" placeholder='[
+  { "txid": "...", "rawTx": "...", "blockHeader": "...", "proof": [...], "vout": 0, "satoshis": 1000 },
+  { "txid": "...", "rawTx": "...", "blockHeader": "...", "proof": [...] }
+]
+
+Order: child (index 0) → oldest ancestor (index N-1)
+Required: txid, rawTx, blockHeader, proof
+Optional: vout, satoshis'></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-verify">Verify Chain</button>
+      <button class="btn btn-secondary" id="btn-demo-valid">Demo: Valid</button>
+      <button class="btn btn-secondary" id="btn-demo-failure">Demo: Failure</button>
+      <button class="btn btn-secondary" id="btn-clear">Clear</button>
+    </div>
+  </div>
+  
+  <div id="empty-state" style="text-align:center;padding:30px;color:var(--text-3);">
+    <p>Paste chain of envelopes (child → ancestors) and click Verify</p>
+  </div>
+  
+  <div id="results" class="hidden">
+    <div id="verdict-box" class="verdict"></div>
+    <div id="failure-box" class="failure-box hidden"></div>
+    
+    <div class="section">
+      <div class="section-title">Chain Summary</div>
+      <div class="chain-summary" id="chain-summary"></div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Chain Verification</div>
+      <div class="chain-view" id="chain-view">
+        <div class="chain-line"></div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Export</div>
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-sm" id="btn-export-json">JSON</button>
+        <button class="btn btn-secondary btn-sm" id="btn-export-text">Text Report</button>
+        <button class="btn btn-secondary btn-sm" id="btn-copy">Copy Report</button>
+      </div>
+    </div>
+  </div>
+  
+  <footer>
+    <a href="generator.html">Generator</a> · 
+    <a href="headers-generator.html">Headers</a> · 
+    <a href="verifier.html">Verifier</a> · 
+    <a href="signer.html">Signer</a> · 
+    <a href="explorer.html">Explorer</a> · 
+    Chain · 
+    <a href="tests.html">Tests</a> · 
+    <a href="tests-mainnet.html">Mainnet</a>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+    
+    // ============================================================
+    // PROTOCOL CONSTANTS
+    // ============================================================
+    const PROTOCOL_VERSION = '1.0.0';
+    const MAX_CHAIN_DEPTH = 10;
+    const ABSENT_SATOSHIS = 0xFFFFFFFFFFFFFFFFn;
+    const POS_LEFT = 0x00;
+    const POS_RIGHT = 0x01;
+    
+    // ============================================================
+    // BYTE UTILITIES
+    // ============================================================
+    function hexToBytes(hex) {
+      if (typeof hex !== 'string' || hex.length % 2 !== 0) return null;
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < bytes.length; i++) {
+        const b = parseInt(hex.substr(i * 2, 2), 16);
+        if (isNaN(b)) return null;
+        bytes[i] = b;
+      }
+      return bytes;
+    }
+    
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    
+    function reverseHex(hex) {
+      let r = '';
+      for (let i = hex.length - 2; i >= 0; i -= 2) r += hex.substr(i, 2);
+      return r;
+    }
+    
+    function concatBytes(...arrays) {
+      const len = arrays.reduce((a, b) => a + b.length, 0);
+      const result = new Uint8Array(len);
+      let offset = 0;
+      for (const arr of arrays) { result.set(arr, offset); offset += arr.length; }
+      return result;
+    }
+    
+    function uint32LE(n) {
+      const buf = new Uint8Array(4);
+      const view = new DataView(buf.buffer);
+      view.setUint32(0, n >>> 0, true);
+      return buf;
+    }
+    
+    function uint64LE(n) {
+      const buf = new Uint8Array(8);
+      const view = new DataView(buf.buffer);
+      if (typeof n === 'bigint') {
+        view.setUint32(0, Number(n & 0xFFFFFFFFn), true);
+        view.setUint32(4, Number((n >> 32n) & 0xFFFFFFFFn), true);
+      } else {
+        view.setUint32(0, n >>> 0, true);
+        view.setUint32(4, 0, true);
+      }
+      return buf;
+    }
+    
+    function uint16LE(n) {
+      const buf = new Uint8Array(2);
+      const view = new DataView(buf.buffer);
+      view.setUint16(0, n, true);
+      return buf;
+    }
+    
+    // ============================================================
+    // SHA256 IMPLEMENTATION
+    // ============================================================
+    function sha256(bytes) {
+      const K = [
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+      ];
+      let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+      const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
+      const ch = (x, y, z) => ((x & y) ^ (~x & z)) >>> 0;
+      const maj = (x, y, z) => ((x & y) ^ (x & z) ^ (y & z)) >>> 0;
+      const sig0 = x => (rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22)) >>> 0;
+      const sig1 = x => (rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25)) >>> 0;
+      const gam0 = x => (rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3)) >>> 0;
+      const gam1 = x => (rotr(x, 17) ^ rotr(x, 19) ^ (x >>> 10)) >>> 0;
+      
+      const padded = new Uint8Array(Math.ceil((bytes.length + 9) / 64) * 64);
+      padded.set(bytes);
+      padded[bytes.length] = 0x80;
+      const view = new DataView(padded.buffer);
+      view.setUint32(padded.length - 4, bytes.length * 8, false);
+      
+      for (let i = 0; i < padded.length; i += 64) {
+        const W = new Uint32Array(64);
+        for (let t = 0; t < 16; t++) W[t] = view.getUint32(i + t * 4, false);
+        for (let t = 16; t < 64; t++) W[t] = (gam1(W[t-2]) + W[t-7] + gam0(W[t-15]) + W[t-16]) >>> 0;
+        let [a, b, c, d, e, f, g, h] = H;
+        for (let t = 0; t < 64; t++) {
+          const T1 = (h + sig1(e) + ch(e, f, g) + K[t] + W[t]) >>> 0;
+          const T2 = (sig0(a) + maj(a, b, c)) >>> 0;
+          h = g; g = f; f = e; e = (d + T1) >>> 0; d = c; c = b; b = a; a = (T1 + T2) >>> 0;
+        }
+        H = [(H[0]+a)>>>0,(H[1]+b)>>>0,(H[2]+c)>>>0,(H[3]+d)>>>0,(H[4]+e)>>>0,(H[5]+f)>>>0,(H[6]+g)>>>0,(H[7]+h)>>>0];
+      }
+      const result = new Uint8Array(32);
+      const rv = new DataView(result.buffer);
+      for (let i = 0; i < 8; i++) rv.setUint32(i * 4, H[i], false);
+      return result;
+    }
+    
+    function sha256d(bytes) { return sha256(sha256(bytes)); }
+    function sha256Hex(hex) { return bytesToHex(sha256(hexToBytes(hex))); }
+    function sha256dHex(hex) { return bytesToHex(sha256d(hexToBytes(hex))); }
+    
+    // ============================================================
+    // TRANSACTION PARSING
+    // ============================================================
+    function parseTransaction(rawTxHex) {
+      const tx = { inputs: [], outputs: [], valid: false };
+      let offset = 0;
+      
+      const readBytes = (n) => {
+        if (offset + n * 2 > rawTxHex.length) throw new Error('Unexpected end of transaction');
+        const b = rawTxHex.slice(offset, offset + n * 2);
+        offset += n * 2;
+        return b;
+      };
+      
+      const readVarInt = () => {
+        const first = parseInt(readBytes(1), 16);
+        if (first < 0xfd) return first;
+        if (first === 0xfd) return parseInt(reverseHex(readBytes(2)), 16);
+        if (first === 0xfe) return parseInt(reverseHex(readBytes(4)), 16);
+        return parseInt(reverseHex(readBytes(8)), 16);
+      };
+      
+      try {
+        tx.version = parseInt(reverseHex(readBytes(4)), 16);
+        const inputCount = readVarInt();
+        for (let i = 0; i < inputCount; i++) {
+          const prevTxid = reverseHex(readBytes(32));
+          const prevVout = parseInt(reverseHex(readBytes(4)), 16);
+          const scriptLen = readVarInt();
+          const script = readBytes(scriptLen);
+          const sequence = readBytes(4);
+          tx.inputs.push({ prevTxid, prevVout, script, sequence });
+        }
+        const outputCount = readVarInt();
+        for (let i = 0; i < outputCount; i++) {
+          const value = parseInt(reverseHex(readBytes(8)), 16);
+          const scriptLen = readVarInt();
+          const script = readBytes(scriptLen);
+          tx.outputs.push({ value, script, index: i });
+        }
+        tx.locktime = parseInt(reverseHex(readBytes(4)), 16);
+        tx.valid = true;
+      } catch (e) {
+        tx.error = e.message;
+      }
+      return tx;
+    }
+    
+    // ============================================================
+    // STRUCTURAL VALIDATION (Phase 1)
+    // ============================================================
+    function validateStructure(envelope, index) {
+      const errors = [];
+      
+      // txid: 64 hex chars
+      if (typeof envelope.txid !== 'string' || envelope.txid.length !== 64) {
+        errors.push('txid must be 64 hex characters');
+      } else if (!/^[0-9a-fA-F]{64}$/.test(envelope.txid)) {
+        errors.push('txid contains invalid hex');
+      }
+      
+      // rawTx: valid hex
+      if (typeof envelope.rawTx !== 'string' || envelope.rawTx.length < 10) {
+        errors.push('rawTx missing or too short');
+      } else if (!/^[0-9a-fA-F]+$/.test(envelope.rawTx)) {
+        errors.push('rawTx contains invalid hex');
+      } else if (envelope.rawTx.length % 2 !== 0) {
+        errors.push('rawTx has odd length');
+      }
+      
+      // blockHeader: 160 hex chars (80 bytes)
+      if (typeof envelope.blockHeader !== 'string' || envelope.blockHeader.length !== 160) {
+        errors.push('blockHeader must be 160 hex characters (80 bytes)');
+      } else if (!/^[0-9a-fA-F]{160}$/.test(envelope.blockHeader)) {
+        errors.push('blockHeader contains invalid hex');
+      }
+      
+      // proof: array
+      if (!Array.isArray(envelope.proof)) {
+        errors.push('proof must be an array');
+      } else {
+        for (let i = 0; i < envelope.proof.length; i++) {
+          const node = envelope.proof[i];
+          if (typeof node !== 'object' || node === null) {
+            errors.push(`proof[${i}] must be an object`);
+            continue;
+          }
+          if (typeof node.hash !== 'string' || node.hash.length !== 64) {
+            errors.push(`proof[${i}].hash must be 64 hex characters`);
+          } else if (!/^[0-9a-fA-F]{64}$/.test(node.hash)) {
+            errors.push(`proof[${i}].hash contains invalid hex`);
+          }
+          if (node.pos !== 'L' && node.pos !== 'R') {
+            errors.push(`proof[${i}].pos must be "L" or "R"`);
+          }
+        }
+      }
+      
+      // vout: optional integer
+      if (envelope.vout !== undefined && (!Number.isInteger(envelope.vout) || envelope.vout < 0)) {
+        errors.push('vout must be a non-negative integer');
+      }
+      
+      // satoshis: optional integer
+      if (envelope.satoshis !== undefined && (!Number.isInteger(envelope.satoshis) || envelope.satoshis < 0)) {
+        errors.push('satoshis must be a non-negative integer');
+      }
+      
+      return { valid: errors.length === 0, errors, hopIndex: index };
+    }
+    
+    // ============================================================
+    // ORDERING VALIDATION (Phase 2)
+    // ============================================================
+    function validateOrdering(envelopes) {
+      if (envelopes.length <= 1) return { valid: true };
+      
+      for (let i = 0; i < envelopes.length - 1; i++) {
+        const child = envelopes[i];
+        const parent = envelopes[i + 1];
+        
+        // Parse child transaction to get inputs
+        const childTx = parseTransaction(child.rawTx);
+        if (!childTx.valid) {
+          return { valid: false, failureType: 'STRUCTURE_INVALID', hopIndex: i, reason: 'Cannot parse child transaction' };
+        }
+        
+        const parentTxid = parent.txid.toLowerCase();
+        const childTxid = child.txid.toLowerCase();
+        
+        // Check if child references parent
+        const childRefsParent = childTx.inputs.some(inp => inp.prevTxid.toLowerCase() === parentTxid);
+        
+        // Check if parent references child (would indicate reversed order)
+        const parentTx = parseTransaction(parent.rawTx);
+        if (parentTx.valid) {
+          const parentRefsChild = parentTx.inputs.some(inp => inp.prevTxid.toLowerCase() === childTxid);
+          if (parentRefsChild) {
+            return { valid: false, failureType: 'ORDERING_INVALID', orderingError: 'REVERSED', hopIndex: i, reason: 'Chain is reversed: parent references child' };
+          }
+        }
+        
+        if (!childRefsParent) {
+          return { valid: false, failureType: 'ORDERING_INVALID', orderingError: 'UNLINKED', hopIndex: i, reason: 'Child does not reference parent' };
+        }
+      }
+      
+      return { valid: true };
+    }
+    
+    // ============================================================
+    // PER-HOP VERIFICATION (Phase 3)
+    // ============================================================
+    function verifyHop(envelope, index) {
+      const result = {
+        hopIndex: index,
+        txid: envelope.txid,
+        valid: false,
+        failureType: null,
+        failureDetails: null,
+        txidVerified: false,
+        powVerified: false,
+        merkleVerified: false,
+        parsedTx: null,
+        blockTime: null,
+        blockHash: null,
+        computedTxid: null,
+        computedMerkleRoot: null,
+        expectedMerkleRoot: null,
+        steps: []
+      };
+      
+      // 1. TXID Verification
+      const rawTxBytes = hexToBytes(envelope.rawTx);
+      const computedTxidBytes = sha256d(rawTxBytes);
+      const computedTxid = reverseHex(bytesToHex(computedTxidBytes));
+      result.computedTxid = computedTxid;
+      
+      if (computedTxid.toLowerCase() !== envelope.txid.toLowerCase()) {
+        result.failureType = 'TXID_MISMATCH';
+        result.failureDetails = { computed: computedTxid, expected: envelope.txid };
+        result.steps.push({ name: 'TXID', status: 'fail' });
+        return result;
+      }
+      result.txidVerified = true;
+      result.steps.push({ name: 'TXID', status: 'pass' });
+      
+      // 2. Parse Transaction
+      result.parsedTx = parseTransaction(envelope.rawTx);
+      if (!result.parsedTx.valid) {
+        result.failureType = 'TX_PARSE_ERROR';
+        result.failureDetails = { error: result.parsedTx.error };
+        return result;
+      }
+      
+      // 3. Parse Header
+      const hdr = envelope.blockHeader;
+      const merkleRootLE = hdr.slice(72, 136);
+      result.expectedMerkleRoot = reverseHex(merkleRootLE).toLowerCase();
+      const timestamp = parseInt(reverseHex(hdr.slice(136, 144)), 16);
+      result.blockTime = new Date(timestamp * 1000).toISOString();
+      
+      // 4. Block Hash and PoW
+      const headerBytes = hexToBytes(hdr);
+      const blockHashBytes = sha256d(headerBytes);
+      result.blockHash = reverseHex(bytesToHex(blockHashBytes));
+      
+      const bits = reverseHex(hdr.slice(144, 152));
+      const bitsVal = parseInt(bits, 16);
+      const exponent = (bitsVal >> 24) & 0xff;
+      const mantissa = bitsVal & 0x007fffff;
+      const target = BigInt(mantissa) * (BigInt(2) ** BigInt(8 * (exponent - 3)));
+      const hashVal = BigInt('0x' + result.blockHash);
+      
+      if (hashVal >= target) {
+        result.failureType = 'POW_INVALID';
+        result.failureDetails = { blockHash: result.blockHash, target: target.toString(16).padStart(64, '0') };
+        result.steps.push({ name: 'PoW', status: 'fail' });
+        return result;
+      }
+      result.powVerified = true;
+      result.steps.push({ name: 'PoW', status: 'pass' });
+      
+      // 5. Merkle Proof Verification
+      let currentHash = hexToBytes(reverseHex(envelope.txid));
+      const proof = envelope.proof || [];
+      
+      for (let i = 0; i < proof.length; i++) {
+        const siblingBytes = hexToBytes(proof[i].hash);
+        const pos = proof[i].pos;
+        
+        let concat;
+        if (pos === 'L') {
+          concat = concatBytes(siblingBytes, currentHash);
+        } else {
+          concat = concatBytes(currentHash, siblingBytes);
+        }
+        currentHash = sha256d(concat);
+      }
+      
+      const computedRoot = reverseHex(bytesToHex(currentHash)).toLowerCase();
+      result.computedMerkleRoot = computedRoot;
+      
+      if (computedRoot !== result.expectedMerkleRoot) {
+        result.failureType = 'MERKLE_MISMATCH';
+        result.failureDetails = { computed: computedRoot, expected: result.expectedMerkleRoot };
+        result.steps.push({ name: 'Merkle', status: 'fail' });
+        return result;
+      }
+      result.merkleVerified = true;
+      result.steps.push({ name: 'Merkle', status: 'pass' });
+      
+      result.valid = true;
+      return result;
+    }
+    
+    // ============================================================
+    // LINKAGE VERIFICATION (Phase 4)
+    // ============================================================
+    function verifyLinkage(child, parent, childTx) {
+      const parentTxid = parent.txid.toLowerCase();
+      
+      for (const input of childTx.inputs) {
+        if (input.prevTxid.toLowerCase() === parentTxid) {
+          return { valid: true, vout: input.prevVout };
+        }
+      }
+      
+      return { valid: false, reason: 'No input references parent TXID' };
+    }
+    
+    // ============================================================
+    // VALUE CONTINUITY (Phase 5)
+    // ============================================================
+    function verifyValueContinuity(child, parent, linkageVout, parentTx) {
+      const result = { valid: true, parentValue: null, childClaimed: null };
+      
+      // Check output exists
+      if (linkageVout >= parentTx.outputs.length) {
+        result.valid = false;
+        result.reason = 'Referenced output index does not exist';
+        return result;
+      }
+      
+      result.parentValue = parentTx.outputs[linkageVout].value;
+      
+      // If child claims satoshis, verify
+      if (typeof child.satoshis === 'number') {
+        result.childClaimed = child.satoshis;
+        if (result.parentValue < result.childClaimed) {
+          result.valid = false;
+          result.reason = 'Parent output value less than child claimed';
+        }
+      }
+      
+      return result;
+    }
+    
+    // ============================================================
+    // CANONICAL SERIALIZATION (per spec)
+    // ============================================================
+    function serializeHop(envelope) {
+      // txid_bytes (32) - NO reversal, use provided hex directly
+      const txidBytes = hexToBytes(envelope.txid);
+      
+      // vout_bytes (4, LE) - 0x00000000 if absent
+      const vout = typeof envelope.vout === 'number' ? envelope.vout : 0;
+      const voutBytes = uint32LE(vout);
+      
+      // satoshis_bytes (8, LE) - 0xFFFFFFFFFFFFFFFF if absent
+      const satoshis = typeof envelope.satoshis === 'number' ? BigInt(envelope.satoshis) : ABSENT_SATOSHIS;
+      const satoshisBytes = uint64LE(satoshis);
+      
+      // rawTx_bytes + length prefix
+      const rawTxBytes = hexToBytes(envelope.rawTx);
+      const rawTxLenBytes = uint32LE(rawTxBytes.length);
+      
+      // blockHeader_bytes (80)
+      const headerBytes = hexToBytes(envelope.blockHeader);
+      
+      // proof_serialized
+      const proof = envelope.proof || [];
+      const proofCountBytes = uint16LE(proof.length);
+      const proofParts = [proofCountBytes];
+      for (const node of proof) {
+        const hashBytes = hexToBytes(node.hash); // NO reversal
+        const posByte = new Uint8Array([node.pos === 'L' ? POS_LEFT : POS_RIGHT]);
+        proofParts.push(hashBytes, posByte);
+      }
+      const proofBytes = concatBytes(...proofParts);
+      
+      // Concatenate all
+      return concatBytes(
+        txidBytes,
+        voutBytes,
+        satoshisBytes,
+        rawTxBytes,
+        rawTxLenBytes,
+        headerBytes,
+        proofBytes
+      );
+    }
+    
+    function serializeChain(envelopes) {
+      const parts = envelopes.map(e => serializeHop(e));
+      return concatBytes(...parts);
+    }
+    
+    // ============================================================
+    // HASH DERIVATIONS (per spec)
+    // ============================================================
+    function computeHopVerificationHash(envelope) {
+      const serialized = serializeHop(envelope);
+      return sha256(serialized);
+    }
+    
+    function computeInputFingerprint(envelopes) {
+      const chainSerialized = serializeChain(envelopes);
+      const hash = sha256(chainSerialized);
+      return bytesToHex(hash).slice(0, 32); // First 16 bytes = 32 hex chars
+    }
+    
+    function computeChainVerificationHash(hopHashes) {
+      const concat = concatBytes(...hopHashes);
+      return sha256(concat);
+    }
+    
+    // ============================================================
+    // MAIN VERIFICATION PROCEDURE
+    // ============================================================
+    function verifyChain(envelopes) {
+      const result = {
+        version: PROTOCOL_VERSION,
+        timestamp: new Date().toISOString(),
+        result: 'FAILED',
+        failureType: null,
+        failureHop: null,
+        failureDetails: null,
+        inputFingerprint: null,
+        chainVerificationHash: null,
+        hopVerificationHashes: [],
+        chainMetadata: {
+          hopCount: envelopes.length,
+          totalValue: null,
+          oldestBlock: null,
+          newestBlock: null
+        },
+        hops: []
+      };
+      
+      // Validate chain depth
+      if (envelopes.length > MAX_CHAIN_DEPTH) {
+        result.failureType = 'STRUCTURE_INVALID';
+        result.failureDetails = { reason: 'Chain exceeds maximum depth of ' + MAX_CHAIN_DEPTH };
+        return result;
+      }
+      
+      if (envelopes.length === 0) {
+        result.failureType = 'STRUCTURE_INVALID';
+        result.failureDetails = { reason: 'Empty chain' };
+        return result;
+      }
+      
+      // Phase 1: Structural Validation
+      for (let i = 0; i < envelopes.length; i++) {
+        const sv = validateStructure(envelopes[i], i);
+        if (!sv.valid) {
+          result.failureType = 'STRUCTURE_INVALID';
+          result.failureHop = i;
+          result.failureDetails = { errors: sv.errors };
+          return result;
+        }
+      }
+      
+      // Phase 2: Ordering Validation
+      const orderResult = validateOrdering(envelopes);
+      if (!orderResult.valid) {
+        result.failureType = orderResult.failureType;
+        result.failureHop = orderResult.hopIndex;
+        result.failureDetails = { 
+          orderingError: orderResult.orderingError,
+          reason: orderResult.reason 
+        };
+        return result;
+      }
+      
+      // Phase 3: Per-Hop Verification
+      const hopResults = [];
+      const hopHashes = [];
+      
+      for (let i = 0; i < envelopes.length; i++) {
+        const hopResult = verifyHop(envelopes[i], i);
+        hopResults.push(hopResult);
+        
+        // Compute hop verification hash regardless of validity
+        const hopHash = computeHopVerificationHash(envelopes[i]);
+        hopHashes.push(hopHash);
+        hopResult.verificationHash = bytesToHex(hopHash);
+        
+        if (!hopResult.valid) {
+          result.failureType = hopResult.failureType;
+          result.failureHop = i;
+          result.failureDetails = hopResult.failureDetails;
+          
+          // Still compute hashes for forensics
+          result.inputFingerprint = computeInputFingerprint(envelopes);
+          result.hopVerificationHashes = hopHashes.map(h => bytesToHex(h));
+          result.chainVerificationHash = bytesToHex(computeChainVerificationHash(hopHashes));
+          result.hops = hopResults.map((hr, idx) => formatHopResult(hr, envelopes[idx]));
+          
+          return result;
+        }
+      }
+      
+      // Phase 4 & 5: Linkage and Value Continuity
+      for (let i = 0; i < envelopes.length - 1; i++) {
+        const child = envelopes[i];
+        const parent = envelopes[i + 1];
+        const childResult = hopResults[i];
+        const parentResult = hopResults[i + 1];
+        
+        // Linkage
+        const linkage = verifyLinkage(child, parent, childResult.parsedTx);
+        childResult.linkage = linkage;
+        
+        if (!linkage.valid) {
+          result.failureType = 'LINKAGE_BROKEN';
+          result.failureHop = i;
+          result.failureDetails = { reason: linkage.reason };
+          
+          result.inputFingerprint = computeInputFingerprint(envelopes);
+          result.hopVerificationHashes = hopHashes.map(h => bytesToHex(h));
+          result.chainVerificationHash = bytesToHex(computeChainVerificationHash(hopHashes));
+          result.hops = hopResults.map((hr, idx) => formatHopResult(hr, envelopes[idx]));
+          
+          return result;
+        }
+        
+        // Value Continuity
+        const valueCont = verifyValueContinuity(child, parent, linkage.vout, parentResult.parsedTx);
+        childResult.valueContinuity = valueCont;
+        
+        if (!valueCont.valid) {
+          result.failureType = 'VALUE_MISMATCH';
+          result.failureHop = i;
+          result.failureDetails = {
+            reason: valueCont.reason,
+            parentValue: valueCont.parentValue,
+            childClaimed: valueCont.childClaimed
+          };
+          
+          result.inputFingerprint = computeInputFingerprint(envelopes);
+          result.hopVerificationHashes = hopHashes.map(h => bytesToHex(h));
+          result.chainVerificationHash = bytesToHex(computeChainVerificationHash(hopHashes));
+          result.hops = hopResults.map((hr, idx) => formatHopResult(hr, envelopes[idx]));
+          
+          return result;
+        }
+      }
+      
+      // Mark last hop (root) - no linkage/value check needed
+      hopResults[hopResults.length - 1].linkage = { valid: true, isRoot: true };
+      hopResults[hopResults.length - 1].valueContinuity = { valid: true, isRoot: true };
+      
+      // Phase 6: Compute Final Hashes
+      result.inputFingerprint = computeInputFingerprint(envelopes);
+      result.hopVerificationHashes = hopHashes.map(h => bytesToHex(h));
+      result.chainVerificationHash = bytesToHex(computeChainVerificationHash(hopHashes));
+      
+      // Metadata
+      const blockTimes = hopResults.map(hr => new Date(hr.blockTime));
+      result.chainMetadata.newestBlock = hopResults[0].blockTime;
+      result.chainMetadata.oldestBlock = hopResults[hopResults.length - 1].blockTime;
+      
+      // Total value from root
+      const rootTx = hopResults[hopResults.length - 1].parsedTx;
+      if (rootTx && rootTx.outputs) {
+        result.chainMetadata.totalValue = rootTx.outputs.reduce((sum, o) => sum + o.value, 0);
+      }
+      
+      result.result = 'VALID';
+      result.hops = hopResults.map((hr, idx) => formatHopResult(hr, envelopes[idx]));
+      
+      return result;
+    }
+    
+    function formatHopResult(hopResult, envelope) {
+      return {
+        index: hopResult.hopIndex,
+        txid: hopResult.txid,
+        blockHash: hopResult.blockHash,
+        blockTime: hopResult.blockTime,
+        verificationHash: hopResult.verificationHash,
+        valid: hopResult.valid,
+        failureType: hopResult.failureType,
+        linkage: hopResult.linkage || null,
+        valueContinuity: hopResult.valueContinuity || null,
+        steps: hopResult.steps
+      };
+    }
+    
+    // ============================================================
+    // DEMO DATA
+    // ============================================================
+    // Block 170: First P2P Bitcoin transaction (Satoshi → Hal Finney)
+    // Coinbase TXID: b1fea52486ce0c62bb442b530a3f0132b826c74e473d1f2c220bfa78111c5082
+    // Payment TXID:  f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16
+    // Sibling proof hash is coinbase in LE format
+    const DEMO_VALID = [{
+      txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+      vout: 0,
+      satoshis: 1000000000,
+      rawTx: "0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000",
+      blockHeader: "0100000055bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d51b96a49ffff001d283e9e70",
+      proof: [{ hash: "82501c1178fa0b222c1f3d474ec726b832013f0a532b44bb620cce8624a5feb1", pos: "L" }]
+    }];
+    
+    const DEMO_FAILURE = [{
+      txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+      vout: 0,
+      satoshis: 1000000000,
+      rawTx: "0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000",
+      blockHeader: "0100000055bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d51b96a49ffff001d283e9e70",
+      // CORRUPTED: First two bytes changed from 82 to 00
+      proof: [{ hash: "00501c1178fa0b222c1f3d474ec726b832013f0a532b44bb620cce8624a5feb1", pos: "L" }]
+    }];
+    
+    // ============================================================
+    // RENDERING
+    // ============================================================
+    let currentResult = null;
+    let isDemoMode = false;
+    let demoType = null;
+    
+    function render(result, demo = null) {
+      currentResult = result;
+      isDemoMode = demo !== null;
+      demoType = demo;
+      
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('results').classList.remove('hidden');
+      
+      // Demo banner
+      const banner = document.getElementById('demo-banner');
+      if (isDemoMode) {
+        banner.classList.remove('hidden');
+        banner.className = 'demo-banner' + (demo === 'failure' ? ' failure' : '');
+        document.getElementById('demo-desc').textContent = 
+          demo === 'failure' ? 'Block 170 with corrupted Merkle sibling' : 'Block 170: First P2P Bitcoin transaction (Satoshi → Hal Finney)';
+      } else {
+        banner.classList.add('hidden');
+      }
+      
+      renderVerdict(result);
+      renderFailure(result);
+      renderSummary(result);
+      renderChain(result);
+    }
+    
+    function renderVerdict(r) {
+      const box = document.getElementById('verdict-box');
+      const isValid = r.result === 'VALID';
+      box.className = 'verdict ' + (isValid ? 'valid' : 'invalid');
+      
+      let html = '<div class="verdict-title">';
+      html += '<span>' + (isValid ? '✓' : '✗') + '</span> ';
+      html += isValid ? 'CHAIN VERIFIED' : 'VERIFICATION FAILED';
+      html += '</div>';
+      
+      html += '<div class="verdict-meta">';
+      html += '<span class="label">Input Fingerprint:</span>' + (r.inputFingerprint || '—') + '<br>';
+      html += '<span class="label">Chain Verification Hash:</span>' + (r.chainVerificationHash || '—') + '<br>';
+      html += '<span class="label">Protocol Version:</span>' + r.version;
+      html += '</div>';
+      
+      box.innerHTML = html;
+    }
+    
+    function renderFailure(r) {
+      const box = document.getElementById('failure-box');
+      if (r.result === 'VALID') {
+        box.classList.add('hidden');
+        return;
+      }
+      
+      box.classList.remove('hidden');
+      let html = '<div class="failure-title">Failure Diagnostics</div>';
+      html += '<div class="failure-row"><span class="label">Type:</span> ' + r.failureType + '</div>';
+      html += '<div class="failure-row"><span class="label">Hop Index:</span> ' + (r.failureHop !== null ? r.failureHop : '—') + '</div>';
+      
+      if (r.failureDetails) {
+        if (r.failureDetails.reason) {
+          html += '<div class="failure-row"><span class="label">Reason:</span> ' + r.failureDetails.reason + '</div>';
+        }
+        if (r.failureDetails.errors) {
+          html += '<div class="failure-row"><span class="label">Errors:</span> ' + r.failureDetails.errors.join('; ') + '</div>';
+        }
+        if (r.failureDetails.computed && r.failureDetails.expected) {
+          html += '<div class="byte-diff">';
+          html += '<div>Computed: ' + renderByteDiff(r.failureDetails.computed, r.failureDetails.expected) + '</div>';
+          html += '<div>Expected: ' + renderByteDiff(r.failureDetails.expected, r.failureDetails.computed) + '</div>';
+          html += '</div>';
+        }
+      }
+      
+      box.innerHTML = html;
+    }
+    
+    function renderByteDiff(str, compare) {
+      let html = '';
+      const s = str.toLowerCase();
+      const c = compare.toLowerCase();
+      for (let i = 0; i < s.length; i++) {
+        if (s[i] !== c[i]) {
+          html += '<span class="differ">' + s[i] + '</span>';
+        } else {
+          html += '<span class="match">' + s[i] + '</span>';
+        }
+      }
+      return html;
+    }
+    
+    function renderSummary(r) {
+      const el = document.getElementById('chain-summary');
+      let html = '';
+      
+      html += '<div class="summary-item"><div class="summary-label">Hops</div><div class="summary-value">' + r.chainMetadata.hopCount + '</div></div>';
+      
+      if (r.chainMetadata.totalValue !== null) {
+        const btc = (r.chainMetadata.totalValue / 100000000).toFixed(8);
+        html += '<div class="summary-item"><div class="summary-label">Total Value</div><div class="summary-value">' + btc + ' BSV</div></div>';
+      }
+      
+      if (r.chainMetadata.oldestBlock) {
+        const oldest = r.chainMetadata.oldestBlock.split('T')[0];
+        html += '<div class="summary-item"><div class="summary-label">Oldest Block</div><div class="summary-value">' + oldest + '</div></div>';
+      }
+      
+      if (r.chainMetadata.newestBlock) {
+        const newest = r.chainMetadata.newestBlock.split('T')[0];
+        html += '<div class="summary-item"><div class="summary-label">Newest Block</div><div class="summary-value">' + newest + '</div></div>';
+      }
+      
+      el.innerHTML = html;
+    }
+    
+    function renderChain(r) {
+      const container = document.getElementById('chain-view');
+      let html = '<div class="chain-line"></div>';
+      
+      for (let i = 0; i < r.hops.length; i++) {
+        const hop = r.hops[i];
+        const isValid = hop.valid;
+        const isRoot = i === r.hops.length - 1;
+        
+        html += '<div class="hop">';
+        html += '<div class="hop-marker ' + (isValid ? '' : 'invalid') + '">' + i + '</div>';
+        html += '<div class="hop-card ' + (isValid ? '' : 'invalid') + '">';
+        
+        // Header
+        html += '<div class="hop-header" onclick="toggleHop(' + i + ')">';
+        html += '<span class="hop-title"><span class="hop-num">#' + i + '</span>' + (isRoot ? 'Root' : 'Hop ' + i) + '</span>';
+        html += '<div class="hop-badges">';
+        html += '<span class="hop-badge ' + (isValid ? 'valid' : 'invalid') + '">' + (isValid ? 'VERIFIED' : hop.failureType) + '</span>';
+        html += '</div>';
+        html += '</div>';
+        
+        // Summary
+        html += '<div class="hop-summary">';
+        html += '<div class="hop-summary-row"><span class="hop-summary-label">TXID</span><span class="hop-summary-value">' + hop.txid.slice(0, 16) + '...</span></div>';
+        html += '<div class="hop-summary-row"><span class="hop-summary-label">Block</span><span class="hop-summary-value">' + (hop.blockTime ? hop.blockTime.split('T')[0] : '—') + '</span></div>';
+        if (hop.linkage && !hop.linkage.isRoot) {
+          html += '<div class="hop-summary-row"><span class="hop-summary-label">Linkage</span><span class="hop-summary-value">' + (hop.linkage.valid ? 'vout ' + hop.linkage.vout : 'BROKEN') + '</span></div>';
+        }
+        html += '</div>';
+        
+        // Details (collapsed)
+        html += '<div class="hop-details" id="hop-details-' + i + '">';
+        
+        // Verification steps
+        html += '<div class="detail-section"><div class="detail-title">Verification Steps</div>';
+        for (const step of hop.steps) {
+          html += '<div class="step ' + (step.status === 'fail' ? 'failed' : '') + '">';
+          html += '<div class="step-header"><span class="step-title">' + step.name + '</span>';
+          html += '<span class="step-badge ' + step.status + '">' + (step.status === 'pass' ? 'PASS' : 'FAIL') + '</span>';
+          html += '</div></div>';
+        }
+        html += '</div>';
+        
+        // Hashes
+        html += '<div class="detail-section"><div class="detail-title">Hashes</div>';
+        html += '<div class="detail-row"><span class="label">TXID:</span> <span class="value">' + hop.txid + '</span></div>';
+        html += '<div class="detail-row"><span class="label">Block Hash:</span> <span class="value">' + (hop.blockHash || '—') + '</span></div>';
+        html += '<div class="detail-row"><span class="label">Hop Hash:</span> <span class="value">' + (hop.verificationHash || '—') + '</span></div>';
+        html += '</div>';
+        
+        // Linkage
+        if (hop.linkage && !hop.linkage.isRoot) {
+          html += '<div class="detail-section"><div class="detail-title">Linkage</div>';
+          html += '<div class="detail-row"><span class="label">Status:</span> <span class="value ' + (hop.linkage.valid ? 'valid' : 'invalid') + '">' + (hop.linkage.valid ? 'VALID' : 'BROKEN') + '</span></div>';
+          if (hop.linkage.valid) {
+            html += '<div class="detail-row"><span class="label">Output Index:</span> <span class="value">' + hop.linkage.vout + '</span></div>';
+          }
+          html += '</div>';
+        }
+        
+        // Value Continuity
+        if (hop.valueContinuity && !hop.valueContinuity.isRoot) {
+          html += '<div class="detail-section"><div class="detail-title">Value Continuity</div>';
+          html += '<div class="detail-row"><span class="label">Status:</span> <span class="value ' + (hop.valueContinuity.valid ? 'valid' : 'invalid') + '">' + (hop.valueContinuity.valid ? 'PASS' : 'FAIL') + '</span></div>';
+          if (hop.valueContinuity.parentValue !== null) {
+            html += '<div class="detail-row"><span class="label">Parent Value:</span> <span class="value">' + hop.valueContinuity.parentValue + ' sats</span></div>';
+          }
+          if (hop.valueContinuity.childClaimed !== null) {
+            html += '<div class="detail-row"><span class="label">Child Claims:</span> <span class="value">' + hop.valueContinuity.childClaimed + ' sats</span></div>';
+          }
+          html += '</div>';
+        }
+        
+        html += '</div>'; // hop-details
+        html += '</div>'; // hop-card
+        html += '</div>'; // hop
+      }
+      
+      container.innerHTML = html;
+    }
+    
+    window.toggleHop = function(index) {
+      const details = document.getElementById('hop-details-' + index);
+      if (details) {
+        details.classList.toggle('open');
+      }
+    };
+    
+    // ============================================================
+    // EXPORT
+    // ============================================================
+    function exportJSON() {
+      if (!currentResult) return;
+      const json = JSON.stringify(currentResult, null, 2);
+      download('chain-verification-' + (currentResult.inputFingerprint || 'unknown') + '.json', json, 'application/json');
+    }
+    
+    function exportText() {
+      if (!currentResult) return;
+      const text = generateTextReport(currentResult);
+      download('chain-verification-' + (currentResult.inputFingerprint || 'unknown') + '.txt', text, 'text/plain');
+    }
+    
+    function copyReport() {
+      if (!currentResult) return;
+      navigator.clipboard.writeText(generateTextReport(currentResult)).then(() => alert('Report copied'));
+    }
+    
+    function generateTextReport(r) {
+      const line = '='.repeat(72);
+      const dash = '-'.repeat(72);
+      let t = '';
+      
+      t += line + '\n';
+      t += 'PROOF CHAIN VERIFICATION REPORT\n';
+      t += 'Protocol Version: ' + r.version + '\n';
+      t += line + '\n\n';
+      
+      t += 'Timestamp:              ' + r.timestamp + '\n';
+      t += 'Result:                 ' + r.result + '\n';
+      t += 'Input Fingerprint:      ' + (r.inputFingerprint || '—') + '\n';
+      t += 'Chain Verification Hash: ' + (r.chainVerificationHash || '—') + '\n\n';
+      
+      if (r.result !== 'VALID') {
+        t += dash + '\n';
+        t += 'FAILURE DIAGNOSTICS\n';
+        t += dash + '\n';
+        t += 'Failure Type:  ' + r.failureType + '\n';
+        t += 'Failure Hop:   ' + (r.failureHop !== null ? r.failureHop : '—') + '\n';
+        if (r.failureDetails) {
+          if (r.failureDetails.reason) t += 'Reason:        ' + r.failureDetails.reason + '\n';
+          if (r.failureDetails.computed) t += 'Computed:      ' + r.failureDetails.computed + '\n';
+          if (r.failureDetails.expected) t += 'Expected:      ' + r.failureDetails.expected + '\n';
+        }
+        t += '\n';
+      }
+      
+      t += dash + '\n';
+      t += 'CHAIN METADATA\n';
+      t += dash + '\n';
+      t += 'Hop Count:     ' + r.chainMetadata.hopCount + '\n';
+      if (r.chainMetadata.totalValue !== null) {
+        t += 'Total Value:   ' + r.chainMetadata.totalValue + ' sats (' + (r.chainMetadata.totalValue / 100000000).toFixed(8) + ' BSV)\n';
+      }
+      t += 'Oldest Block:  ' + (r.chainMetadata.oldestBlock || '—') + '\n';
+      t += 'Newest Block:  ' + (r.chainMetadata.newestBlock || '—') + '\n\n';
+      
+      t += dash + '\n';
+      t += 'HOP VERIFICATION HASHES\n';
+      t += dash + '\n';
+      for (let i = 0; i < r.hopVerificationHashes.length; i++) {
+        t += '[' + i + '] ' + r.hopVerificationHashes[i] + '\n';
+      }
+      t += '\n';
+      
+      t += dash + '\n';
+      t += 'HOP DETAILS\n';
+      t += dash + '\n';
+      for (const hop of r.hops) {
+        t += '\n[Hop ' + hop.index + '] ' + (hop.valid ? 'VERIFIED' : 'FAILED: ' + hop.failureType) + '\n';
+        t += '  TXID:         ' + hop.txid + '\n';
+        t += '  Block Hash:   ' + (hop.blockHash || '—') + '\n';
+        t += '  Block Time:   ' + (hop.blockTime || '—') + '\n';
+        t += '  Hop Hash:     ' + (hop.verificationHash || '—') + '\n';
+        if (hop.linkage && !hop.linkage.isRoot) {
+          t += '  Linkage:      ' + (hop.linkage.valid ? 'VALID (vout ' + hop.linkage.vout + ')' : 'BROKEN') + '\n';
+        }
+        if (hop.valueContinuity && !hop.valueContinuity.isRoot) {
+          t += '  Value:        ' + (hop.valueContinuity.valid ? 'PASS' : 'FAIL');
+          if (hop.valueContinuity.parentValue !== null) {
+            t += ' (parent: ' + hop.valueContinuity.parentValue + ' sats)';
+          }
+          t += '\n';
+        }
+      }
+      
+      t += '\n' + line + '\n';
+      t += 'END OF REPORT\n';
+      t += line + '\n';
+      
+      return t;
+    }
+    
+    function download(filename, content, type) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([content], { type }));
+      a.download = filename;
+      a.click();
+    }
+    
+    // ============================================================
+    // EVENT HANDLERS
+    // ============================================================
+    document.getElementById('btn-verify').addEventListener('click', () => {
+      const input = document.getElementById('chain-input').value.trim();
+      if (!input) return alert('Input required');
+      
+      try {
+        const envelopes = JSON.parse(input);
+        if (!Array.isArray(envelopes)) return alert('Input must be a JSON array');
+        render(verifyChain(envelopes));
+      } catch (e) {
+        alert('Parse error: ' + e.message);
+      }
+    });
+    
+    document.getElementById('btn-demo-valid').addEventListener('click', () => {
+      document.getElementById('chain-input').value = JSON.stringify(DEMO_VALID, null, 2);
+      render(verifyChain(DEMO_VALID), 'valid');
+    });
+    
+    document.getElementById('btn-demo-failure').addEventListener('click', () => {
+      document.getElementById('chain-input').value = JSON.stringify(DEMO_FAILURE, null, 2);
+      render(verifyChain(DEMO_FAILURE), 'failure');
+    });
+    
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      document.getElementById('chain-input').value = '';
+      document.getElementById('results').classList.add('hidden');
+      document.getElementById('empty-state').classList.remove('hidden');
+      document.getElementById('demo-banner').classList.add('hidden');
+      currentResult = null;
+    });
+    
+    document.getElementById('btn-export-json').addEventListener('click', exportJSON);
+    document.getElementById('btn-export-text').addEventListener('click', exportText);
+    document.getElementById('btn-copy').addEventListener('click', copyReport);
+    
+  })();
+  </script>
+</body>
+</html>

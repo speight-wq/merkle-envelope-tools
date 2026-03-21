@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'none';">
-  <title>SPV Proof Verifier — Merkle Envelope Tools</title>
+  <title>SPV Proof Explorer — Merkle Envelope Tools</title>
   <script src="lib/crypto.js"></script>
   <script src="lib/encoding.js"></script>
   <script src="lib/headers.js"></script>
@@ -14,76 +14,94 @@
       --text: #212529; --text-2: #495057; --text-3: #868e96;
       --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8;
       --danger: #e03131; --danger-bg: #ffe3e3; --warning: #e67700;
+      --locked: #7048e8; --locked-bg: #e5dbff;
       --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; padding: 20px; max-width: 960px; margin: 0 auto; font-size: 14px; }
-    
+    html { overflow-x: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; padding: 16px !important; min-width: 0; max-width: 960px; margin: 0 auto; font-size: 14px; overflow-x: hidden; overflow-wrap: break-word; }
+    @media (max-width: 480px) { body { padding: 12px !important; font-size: 13px; } }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
     h1 { font-size: 1.4rem; font-weight: 600; }
     .subtitle { color: var(--text-2); font-size: 0.85rem; }
-    .badges { display: flex; gap: 8px; }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; }
     .badge { padding: 4px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
     .badge.offline { color: var(--success); }
     .badge.audit { color: var(--warning); background: #fff3bf; border-color: var(--warning); }
-    
-    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 14px; }
-    .section-title { font-size: 0.75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-    
-    .input { width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 0.8rem; color: var(--text); }
+    .badge.locked { color: var(--locked); background: var(--locked-bg); border-color: var(--locked); }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 14px; overflow: hidden; max-width: 100%; }
+    @media (max-width: 480px) { .section { padding: 10px; } }
+    .section-title { font-size: 0.75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .input { width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 0.75rem; color: var(--text); }
     .input:focus { outline: none; border-color: var(--accent); }
+    .input.locked { background: #f3f0ff; border-color: var(--locked); cursor: not-allowed; }
     textarea.input { min-height: 90px; resize: vertical; }
-    
     .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
     .btn { padding: 7px 14px; border-radius: 4px; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: none; }
     .btn:hover { filter: brightness(0.95); }
     .btn-primary { background: var(--accent); color: white; }
     .btn-secondary { background: var(--border); color: var(--text); }
     .btn-sm { padding: 4px 10px; font-size: 0.7rem; }
-    
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
     .toggle { width: 36px; height: 20px; background: var(--border); border-radius: 10px; position: relative; cursor: pointer; transition: background 0.2s; }
     .toggle.active { background: var(--warning); }
     .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s; }
     .toggle.active::after { left: 18px; }
-    
-    .verdict { padding: 12px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; margin-bottom: 14px; }
+    .verdict { padding: 12px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; margin-bottom: 14px; overflow-wrap: break-word; word-break: break-word; }
     .verdict.valid { background: var(--success-bg); border: 2px solid var(--success); color: var(--success); }
     .verdict.invalid { background: var(--danger-bg); border: 2px solid var(--danger); color: var(--danger); }
     .verdict-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .verdict-hashes { font-size: 0.7rem; font-weight: normal; font-family: var(--mono); color: var(--text-2); line-height: 1.6; }
-    .verdict-hashes .label { color: var(--text-3); display: inline-block; min-width: 140px; }
-    
-    .diagnostics { background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 4px; padding: 12px; margin-top: 10px; }
+    .verdict-hashes { font-size: 0.65rem; font-weight: normal; font-family: var(--mono); color: var(--text-2); line-height: 1.8; word-break: break-all; }
+    .verdict-hashes .label { color: var(--text-3); display: block; margin-bottom: 2px; }
+    @media (min-width: 480px) { .verdict-hashes .label { display: inline-block; min-width: 140px; margin-bottom: 0; } }
+    .summary-line { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 10px 14px; margin-bottom: 14px; font-family: var(--mono); font-size: 0.7rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; word-break: break-all; }
+    .summary-line .status { font-weight: 700; }
+    .summary-line .status.valid { color: var(--success); }
+    .summary-line .status.invalid { color: var(--danger); }
+    .summary-line .meta { color: var(--text-2); }
+    .summary-line .copy-btn { cursor: pointer; color: var(--accent); font-size: 0.7rem; white-space: nowrap; }
+    .lock-indicator { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--locked); padding: 6px 10px; background: var(--locked-bg); border-radius: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+    .diagnostics { background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 4px; padding: 12px; margin-top: 10px; overflow-wrap: break-word; }
     .diagnostics-title { font-weight: 600; font-size: 0.8rem; color: var(--danger); margin-bottom: 8px; }
-    .diagnostics-row { font-size: 0.75rem; margin-bottom: 6px; font-family: var(--mono); }
-    .diagnostics-row .label { color: var(--text-2); display: inline-block; min-width: 100px; }
-    .diagnostics-row .value { color: var(--text); }
-    .diagnostics-row .mismatch { color: var(--danger); font-weight: 600; }
+    .diagnostics-row { font-size: 0.75rem; margin-bottom: 6px; font-family: var(--mono); word-break: break-all; }
+    .diagnostics-row .label { color: var(--text-2); display: block; margin-bottom: 2px; }
+    @media (min-width: 480px) { .diagnostics-row .label { display: inline-block; min-width: 100px; margin-bottom: 0; } }
     .diagnostics-cause { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(224,49,49,0.3); }
     .diagnostics-cause-title { font-size: 0.7rem; color: var(--text-2); margin-bottom: 4px; }
     .diagnostics-cause-text { font-size: 0.8rem; color: var(--danger); font-weight: 500; }
-    
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .structure-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; margin-bottom: 14px; overflow-wrap: break-word; }
+    .structure-panel.valid { border-color: var(--success); background: #f0fdf4; }
+    .structure-panel.invalid { border-color: var(--danger); background: var(--danger-bg); }
+    .structure-title { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; margin-bottom: 6px; }
+    .structure-title.valid { color: var(--success); }
+    .structure-title.invalid { color: var(--danger); }
+    .structure-row { font-size: 0.7rem; color: var(--text-2); margin-bottom: 3px; font-family: var(--mono); word-break: break-word; }
+    .structure-row .check { color: var(--success); margin-right: 6px; }
+    .structure-row .fail { color: var(--danger); margin-right: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    @media (min-width: 480px) { .grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } }
     .grid-full { grid-column: 1 / -1; }
-    
     .field { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; }
     .field-label { font-size: 0.65rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px; }
     .field-value { font-family: var(--mono); font-size: 0.75rem; word-break: break-all; line-height: 1.4; }
     .field-value.success { color: var(--success); }
     .field-value.danger { color: var(--danger); }
     .field-value.small { font-size: 0.65rem; }
-    
+    .timing-row { display: flex; gap: 16px; font-size: 0.7rem; color: var(--text-3); margin-top: 8px; font-family: var(--mono); }
+    .timing-row .timing-label { color: var(--text-2); }
     .step { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 12px; margin-bottom: 10px; }
     .step.failed { background: var(--danger-bg); border-color: var(--danger); }
-    .step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
     .step-title { font-weight: 600; font-size: 0.85rem; color: var(--text); }
+    .step-badges { display: flex; gap: 6px; align-items: center; }
     .step-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
     .step-badge.computed { background: var(--success-bg); color: var(--success); }
     .step-badge.failed { background: var(--danger-bg); color: var(--danger); }
     .step-badge.info { background: #e7f5ff; color: var(--accent); }
-    
+    .step-checkpoint { font-size: 0.6rem; padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-family: var(--mono); color: var(--text-3); }
     .step-detail { font-size: 0.7rem; color: var(--text-2); margin-bottom: 6px; }
+    .step-timing { font-size: 0.65rem; color: var(--text-3); font-family: var(--mono); }
     .step-data { font-family: var(--mono); font-size: 0.7rem; line-height: 1.6; background: var(--surface); padding: 8px; border-radius: 3px; overflow-x: auto; }
     .step-data .label { color: var(--text-3); display: inline-block; min-width: 80px; }
     .step-data .hash { color: var(--text); }
@@ -91,37 +109,44 @@
     .step-data .hash.success { color: var(--success); }
     .step-data .hash.danger { color: var(--danger); }
     .step-data .divider { border-top: 1px dashed var(--border); margin: 6px 0; }
-    
     .byte-diff { font-family: var(--mono); font-size: 0.65rem; line-height: 1.5; margin-top: 8px; }
     .byte-diff .match { color: var(--text-3); }
     .byte-diff .differ { color: var(--danger); font-weight: 600; background: rgba(224,49,49,0.1); }
-    
+    .byte-diff-aligned { font-family: var(--mono); font-size: 0.65rem; line-height: 1.8; margin-top: 8px; background: var(--surface); padding: 8px; border-radius: 3px; overflow-x: auto; }
+    .byte-diff-aligned .byte { display: inline-block; width: 24px; text-align: center; }
+    .byte-diff-aligned .byte.match { color: var(--text-3); }
+    .byte-diff-aligned .byte.differ { color: var(--danger); font-weight: 700; background: rgba(224,49,49,0.15); border-radius: 2px; }
+    .byte-diff-aligned .byte.differ-expect { color: var(--success); font-weight: 700; background: rgba(47,158,68,0.15); border-radius: 2px; }
+    .pow-visual { background: var(--surface); border-radius: 4px; padding: 10px; margin-top: 10px; font-family: var(--mono); font-size: 0.7rem; }
+    .pow-visual .row { margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pow-visual .label { color: var(--text-3); min-width: 60px; }
+    .pow-visual .value { color: var(--text); word-break: break-all; }
+    .pow-visual .result { font-weight: 600; padding: 2px 8px; border-radius: 3px; }
+    .pow-visual .result.valid { background: var(--success-bg); color: var(--success); }
+    .pow-visual .result.invalid { background: var(--danger-bg); color: var(--danger); }
     .collapsible-header { cursor: pointer; user-select: none; }
     .collapsible-header:hover .section-title { color: var(--accent); }
-    .collapsible-toggle { font-size: 0.65rem; color: var(--text-3); font-weight: normal; }
+    .collapsible-toggle { font-size: 0.65rem; color: var(--text-3); font-weight: normal; cursor: pointer; }
     .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.25s ease-out; }
-    .collapsible-content.open { max-height: 3000px; }
-    
+    .collapsible-content.open { max-height: 5000px; }
     .tree-svg { display: block; margin: 0 auto; }
     .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.7rem; color: var(--text-3); margin-bottom: 8px; }
     .legend-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: middle; }
-    
     footer { text-align: center; color: var(--text-3); font-size: 0.75rem; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
     footer a { color: var(--accent); text-decoration: none; }
-    
     .hidden { display: none !important; }
-    .mono { font-family: var(--mono); }
   </style>
 </head>
 <body>
   <header class="header">
     <div>
-      <h1>SPV Proof Verifier</h1>
-      <p class="subtitle">Forensic Merkle verification instrument</p>
+      <h1>SPV Proof Explorer</h1>
+      <p class="subtitle">Forensic verification instrument</p>
     </div>
     <div class="badges">
       <div class="badge offline">OFFLINE</div>
       <div class="badge audit hidden" id="audit-badge">AUDIT MODE</div>
+      <div class="badge locked hidden" id="locked-badge">STATE LOCKED</div>
     </div>
   </header>
   
@@ -138,20 +163,22 @@
       <button class="btn btn-primary" id="btn-verify">Verify</button>
       <button class="btn btn-secondary" id="btn-load">Load Sample</button>
       <button class="btn btn-secondary" id="btn-clear">Clear</button>
+      <button class="btn btn-secondary" id="btn-unlock" style="display:none;">Unlock</button>
     </div>
   </div>
   
-  <div id="empty-state" style="text-align:center;padding:30px;color:var(--text-3);">
-    <p>Awaiting envelope input</p>
-  </div>
+  <div id="empty-state" style="text-align:center;padding:30px;color:var(--text-3);"><p>Awaiting envelope input</p></div>
   
   <div id="results" class="hidden">
-    
+    <div id="lock-indicator" class="lock-indicator hidden"><span>🔒</span><span>Deterministic State Locked — computation path immutable</span></div>
     <div id="verdict-box" class="verdict"></div>
+    <div id="summary-line" class="summary-line hidden"></div>
+    <div id="structure-panel" class="structure-panel hidden"></div>
     
     <div class="section">
       <div class="section-title">Verification Evidence</div>
       <div class="grid" id="evidence-grid"></div>
+      <div class="timing-row" id="timing-summary"></div>
     </div>
     
     <div class="section">
@@ -161,27 +188,22 @@
     
     <div class="section">
       <div class="collapsible-header" id="header-toggle">
-        <div class="section-title">
-          <span>Block Header Breakdown</span>
-          <span class="collapsible-toggle" id="header-toggle-text">Show</span>
-        </div>
+        <div class="section-title"><span>Block Header Breakdown</span><span class="collapsible-toggle" id="header-toggle-text">Show</span></div>
       </div>
       <div class="collapsible-content" id="header-content">
         <div class="grid" id="header-grid" style="margin-top:10px;"></div>
+        <div id="pow-visual" class="pow-visual hidden"></div>
       </div>
     </div>
     
     <div class="section">
-      <div class="section-title">Hash Computation Timeline</div>
+      <div class="section-title"><span>Hash Computation Timeline</span><span id="checkpoint-toggle" class="collapsible-toggle">Show Checkpoints</span></div>
       <div id="timeline"></div>
     </div>
     
     <div class="section">
       <div class="collapsible-header" id="tree-toggle">
-        <div class="section-title">
-          <span>Visual Tree</span>
-          <span class="collapsible-toggle" id="tree-toggle-text">Show</span>
-        </div>
+        <div class="section-title"><span>Visual Tree</span><span class="collapsible-toggle" id="tree-toggle-text">Show</span></div>
       </div>
       <div class="collapsible-content" id="tree-content">
         <div style="padding-top:10px;">
@@ -202,93 +224,45 @@
         <button class="btn btn-secondary btn-sm" id="btn-export-json">JSON</button>
         <button class="btn btn-secondary btn-sm" id="btn-export-text">Text Report</button>
         <button class="btn btn-secondary btn-sm" id="btn-copy">Copy Report</button>
+        <button class="btn btn-secondary btn-sm" id="btn-copy-summary">Copy Summary</button>
       </div>
     </div>
-    
   </div>
   
   <footer>
-    <a href="generator.html">Generator</a> · 
-    <a href="headers-generator.html">Headers</a> · 
-    <a href="verifier.html">Verifier</a> · 
-    <a href="signer.html">Signer</a> · 
-    Explorer · 
-    <a href="tests.html">Tests</a> · 
-    <a href="tests-mainnet.html">Mainnet</a>
+    <a href="generator.html">Generator</a> · <a href="headers-generator.html">Headers</a> · <a href="verifier.html">Verifier</a> · <a href="signer.html">Signer</a> · Explorer · <a href="chain.html">Chain</a> · <a href="tests.html">Tests</a> · <a href="tests-mainnet.html">Mainnet</a>
   </footer>
 
   <script>
   (function() {
     'use strict';
     
-    // ============================================================
-    // Inline Fallbacks (if lib/*.js fails to load)
-    // ============================================================
     if (typeof hexToBytes === 'undefined') {
-      window.hexToBytes = function(hex) {
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-        return bytes;
-      };
+      window.hexToBytes = function(hex) { const bytes = new Uint8Array(hex.length / 2); for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16); return bytes; };
     }
     if (typeof bytesToHex === 'undefined') {
-      window.bytesToHex = function(bytes) {
-        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-      };
+      window.bytesToHex = function(bytes) { return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(''); };
     }
     if (typeof reverseHex === 'undefined') {
-      window.reverseHex = function(hex) {
-        let result = '';
-        for (let i = hex.length - 2; i >= 0; i -= 2) result += hex.substr(i, 2);
-        return result;
-      };
-    }
-    if (typeof hash256 === 'undefined') {
-      // Will be defined by sha256Single below - use double SHA256
-      window.hash256 = function(hexData) {
-        const r1 = sha256Hex(hexData);
-        return hexToBytes(sha256Hex(r1));
-      };
-    }
-    if (typeof parseHeader === 'undefined') {
-      window.parseHeader = function(headerHex) {
-        return {
-          version: parseInt(reverseHex(headerHex.slice(0, 8)), 16),
-          prevBlock: reverseHex(headerHex.slice(8, 72)),
-          merkleRoot: reverseHex(headerHex.slice(72, 136)),
-          timestamp: parseInt(reverseHex(headerHex.slice(136, 144)), 16),
-          bits: parseInt(reverseHex(headerHex.slice(144, 152)), 16),
-          nonce: parseInt(reverseHex(headerHex.slice(152, 160)), 16)
-        };
-      };
+      window.reverseHex = function(hex) { let result = ''; for (let i = hex.length - 2; i >= 0; i -= 2) result += hex.substr(i, 2); return result; };
     }
     
-    let report = null;
-    let auditMode = false;
+    let report = null, auditMode = false, showCheckpoints = false, isLocked = false, lastInputHash = null;
     
+    // Block 170: Satoshi → Hal Finney payment transaction
+    // Compatible with verifier.html and chain.html (includes rawTx)
     const SAMPLE = {
-      txid: "b1fea52486ce0c62bb442b530a3f0132b826c74e473d1f2c220bfa78111c5082",
+      txid: "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+      rawTx: "0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000",
       blockHeader: "0100000055bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d51b96a49ffff001d283e9e70",
-      proof: [{ hash: "169e1e83e930853391bc6f35f605c6754cfead57cf8387639d3b4096c54f18f4", pos: "R" }],
+      proof: [{ hash: "82501c1178fa0b222c1f3d474ec726b832013f0a532b44bb620cce8624a5feb1", pos: "L" }],
       blockHeight: 170
     };
     
-    // ============================================================
-    // SHA256 Implementation (single round)
-    // ============================================================
     function sha256Single(hexData) {
       const data = hexToBytes(hexData);
-      const K = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-      ];
-      let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+      const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+      let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
       const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
       const ch = (x, y, z) => ((x & y) ^ (~x & z)) >>> 0;
       const maj = (x, y, z) => ((x & y) ^ (x & z) ^ (y & z)) >>> 0;
@@ -296,11 +270,10 @@
       const sigma1 = x => (rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25)) >>> 0;
       const gamma0 = x => (rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3)) >>> 0;
       const gamma1 = x => (rotr(x, 17) ^ rotr(x, 19) ^ (x >>> 10)) >>> 0;
-      const bitLen = data.length * 8;
       const padded = new Uint8Array(Math.ceil((data.length + 9) / 64) * 64);
       padded.set(data); padded[data.length] = 0x80;
       const view = new DataView(padded.buffer);
-      view.setUint32(padded.length - 4, bitLen, false);
+      view.setUint32(padded.length - 4, data.length * 8, false);
       for (let i = 0; i < padded.length; i += 64) {
         const W = new Uint32Array(64);
         for (let t = 0; t < 16; t++) W[t] = view.getUint32(i + t * 4, false);
@@ -311,61 +284,82 @@
           const T2 = (sigma0(a) + maj(a, b, c)) >>> 0;
           h = g; g = f; f = e; e = (d + T1) >>> 0; d = c; c = b; b = a; a = (T1 + T2) >>> 0;
         }
-        H = [(H[0]+a)>>>0, (H[1]+b)>>>0, (H[2]+c)>>>0, (H[3]+d)>>>0, (H[4]+e)>>>0, (H[5]+f)>>>0, (H[6]+g)>>>0, (H[7]+h)>>>0];
+        H = [(H[0]+a)>>>0,(H[1]+b)>>>0,(H[2]+c)>>>0,(H[3]+d)>>>0,(H[4]+e)>>>0,(H[5]+f)>>>0,(H[6]+g)>>>0,(H[7]+h)>>>0];
       }
-      const result = new Uint8Array(32);
-      const rv = new DataView(result.buffer);
+      const result = new Uint8Array(32), rv = new DataView(result.buffer);
       for (let i = 0; i < 8; i++) rv.setUint32(i * 4, H[i], false);
       return result;
     }
     
     function sha256Hex(hexData) { return bytesToHex(sha256Single(hexData)); }
     function stringToHex(str) { return Array.from(new TextEncoder().encode(str)).map(b => b.toString(16).padStart(2, '0')).join(''); }
+    function computeStepCheckpoint(stepIndex, stepData) { return sha256Hex(stringToHex(stepIndex + '|' + JSON.stringify(stepData))).slice(0, 12).toUpperCase(); }
     
-    // ============================================================
-    // Verification Engine
-    // ============================================================
+    function validateProofStructure(envelope) {
+      const result = { valid: true, checks: [], anomalies: [] };
+      const proof = envelope.proof || [];
+      result.checks.push({ name: 'Proof Depth', value: proof.length + ' levels', pass: true });
+      const siblingHashes = proof.map(p => (p.hash || '').toLowerCase());
+      const hasDuplicates = new Set(siblingHashes).size !== siblingHashes.length;
+      result.checks.push({ name: 'Unique Siblings', value: hasDuplicates ? 'DUPLICATES' : 'All unique', pass: !hasDuplicates });
+      if (hasDuplicates) { result.valid = false; result.anomalies.push('Duplicate sibling hash'); }
+      const positions = proof.map(p => (p.pos || 'R').toUpperCase());
+      const invalidPos = positions.filter(p => p !== 'L' && p !== 'R');
+      result.checks.push({ name: 'Position Flags', value: invalidPos.length === 0 ? 'All valid' : 'INVALID', pass: invalidPos.length === 0 });
+      if (invalidPos.length > 0) { result.valid = false; result.anomalies.push('Invalid position flag'); }
+      const invalidLen = proof.filter(p => (p.hash || '').length !== 64);
+      result.checks.push({ name: 'Hash Lengths', value: invalidLen.length === 0 ? '64 hex chars' : invalidLen.length + ' invalid', pass: invalidLen.length === 0 });
+      if (invalidLen.length > 0) { result.valid = false; result.anomalies.push('Invalid hash length'); }
+      const txidValid = (envelope.txid || '').length === 64;
+      result.checks.push({ name: 'TXID Length', value: txidValid ? '64 hex' : 'INVALID', pass: txidValid });
+      if (!txidValid) { result.valid = false; result.anomalies.push('Invalid TXID length'); }
+      const headerValid = (envelope.blockHeader || '').length === 160;
+      result.checks.push({ name: 'Header Length', value: headerValid ? '160 hex' : 'INVALID', pass: headerValid });
+      if (!headerValid) { result.valid = false; result.anomalies.push('Invalid header length'); }
+      return result;
+    }
+    
     function verify(envelope) {
+      const startTime = performance.now();
+      const stepTimings = [];
       const r = {
         timestamp: new Date().toISOString(),
         input: { txid: envelope.txid, blockHeader: envelope.blockHeader, proof: envelope.proof || [], blockHeight: envelope.blockHeight },
         txid: { display: envelope.txid.toLowerCase(), internal: reverseHex(envelope.txid.toLowerCase()) },
-        header: null,
-        steps: [],
+        header: null, steps: [],
         metadata: { proofDepth: 0, totalBytesProcessed: 0 },
         result: { valid: false, failedAt: null, reason: null, likelyCause: null },
-        hashes: { inputFingerprint: null, verificationHash: null, replayId: null }
+        hashes: { inputFingerprint: null, verificationHash: null, replayId: null, stepCheckpoints: [] },
+        structureValidation: null,
+        timing: { totalMs: 0, steps: [] }
       };
       
-      // Compute input fingerprint (raw inputs only)
+      r.structureValidation = validateProofStructure(envelope);
       const inputData = r.input.txid + JSON.stringify(r.input.proof) + (r.input.blockHeader || '');
       r.hashes.inputFingerprint = sha256Hex(stringToHex(inputData)).slice(0, 32);
-      
-      // Metadata
       r.metadata.proofDepth = r.input.proof.length;
-      r.metadata.totalBytesProcessed = 32 + (r.input.proof.length * 32) + 80; // TXID + siblings + header
+      r.metadata.totalBytesProcessed = 32 + (r.input.proof.length * 32) + 80;
       
-      // Parse header
       if (!envelope.blockHeader || envelope.blockHeader.length !== 160) {
-        r.result.reason = 'Invalid header length: expected 160 hex characters (80 bytes)';
-        r.result.likelyCause = 'Malformed or truncated block header';
+        r.result.reason = 'Invalid header length';
+        r.result.likelyCause = 'Malformed block header';
         finalizeHashes(r);
+        r.timing.totalMs = performance.now() - startTime;
         return r;
       }
       
       const hdr = envelope.blockHeader;
       try {
+        const hdrStart = performance.now();
         const version = reverseHex(hdr.slice(0, 8));
         const prevBlock = reverseHex(hdr.slice(8, 72));
         const merkleRoot = reverseHex(hdr.slice(72, 136));
         const timestamp = parseInt(reverseHex(hdr.slice(136, 144)), 16);
         const bits = reverseHex(hdr.slice(144, 152));
         const nonce = parseInt(reverseHex(hdr.slice(152, 160)), 16);
-        
         const hash1 = sha256Hex(hdr);
         const hash2 = sha256Hex(hash1);
         const blockHash = reverseHex(hash2);
-        
         const bitsVal = parseInt(bits, 16);
         const exponent = (bitsVal >> 24) & 0xff;
         const mantissa = bitsVal & 0x007fffff;
@@ -379,411 +373,331 @@
           timestamp, timestampISO: new Date(timestamp * 1000).toISOString(), bits, bitsDecimal: bitsVal, nonce,
           blockHashRound1: hash1, blockHashRound2: hash2, blockHash, target: targetHex, powValid
         };
+        stepTimings.push({ name: 'Header Parse', ms: performance.now() - hdrStart });
         
         if (!powValid) {
-          r.result.reason = 'Proof-of-work validation failed: block hash exceeds target threshold';
-          r.result.likelyCause = 'Corrupted header or incorrect difficulty bits';
+          r.result.reason = 'PoW validation failed: hash exceeds target';
+          r.result.likelyCause = 'Corrupted header';
           finalizeHashes(r);
+          r.timing.totalMs = performance.now() - startTime;
+          r.timing.steps = stepTimings;
           return r;
         }
       } catch (e) {
         r.result.reason = 'Header parse error: ' + e.message;
-        r.result.likelyCause = 'Malformed header structure';
+        r.result.likelyCause = 'Malformed header';
         finalizeHashes(r);
+        r.timing.totalMs = performance.now() - startTime;
         return r;
       }
       
-      // Merkle computation
       let current = hexToBytes(r.txid.internal);
       const proof = envelope.proof || [];
       
+      const txidStart = performance.now();
+      const txidStepData = { type: 'txid', output: r.txid.internal };
       r.steps.push({
         level: 0, type: 'txid', title: 'Transaction ID',
         detail: 'Input hash (TXID in internal byte order)',
-        output: r.txid.internal, outputDisplay: r.txid.display
+        output: r.txid.internal, outputDisplay: r.txid.display,
+        checkpoint: computeStepCheckpoint(0, txidStepData)
       });
+      r.hashes.stepCheckpoints.push({ step: 0, checkpoint: r.steps[0].checkpoint });
+      stepTimings.push({ name: 'Step 0 (TXID)', ms: performance.now() - txidStart });
       
       for (let i = 0; i < proof.length; i++) {
+        const stepStart = performance.now();
         const node = proof[i];
         const sibling = hexToBytes(node.hash);
         const pos = (node.pos || 'R').toUpperCase();
-        
         let left, right, operation;
-        if (pos === 'L') {
-          left = sibling; right = current;
-          operation = 'H(sibling || current)';
-        } else {
-          left = current; right = sibling;
-          operation = 'H(current || sibling)';
-        }
-        
-        const leftHex = bytesToHex(left);
-        const rightHex = bytesToHex(right);
+        if (pos === 'L') { left = sibling; right = current; operation = 'H(sibling || current)'; }
+        else { left = current; right = sibling; operation = 'H(current || sibling)'; }
+        const leftHex = bytesToHex(left), rightHex = bytesToHex(right);
         const concat = leftHex + rightHex;
         const round1 = sha256Hex(concat);
         const round2 = sha256Hex(round1);
         const result = hexToBytes(round2);
-        
+        const stepData = { type: 'hash', level: i + 1, left: leftHex, right: rightHex, output: round2 };
+        const checkpoint = computeStepCheckpoint(i + 1, stepData);
         r.steps.push({
-          level: i + 1, type: 'hash', title: `Level ${i + 1}`,
+          level: i + 1, type: 'hash', title: 'Level ' + (i + 1),
           siblingPosition: pos, siblingHash: node.hash, siblingHashDisplay: reverseHex(node.hash),
-          operation, detail: `Sibling position: ${pos === 'L' ? 'LEFT' : 'RIGHT'} | Operation: ${operation}`,
+          operation, detail: 'Sibling: ' + (pos === 'L' ? 'LEFT' : 'RIGHT') + ' | ' + operation,
           inputLeft: leftHex, inputRight: rightHex,
           inputLeftDisplay: reverseHex(leftHex), inputRightDisplay: reverseHex(rightHex),
           concatenation: concat, sha256Round1: round1, sha256Round2: round2,
-          output: round2, outputDisplay: reverseHex(round2)
+          output: round2, outputDisplay: reverseHex(round2), checkpoint
         });
-        
+        r.hashes.stepCheckpoints.push({ step: i + 1, checkpoint });
+        stepTimings.push({ name: 'Step ' + (i + 1), ms: performance.now() - stepStart });
         current = result;
       }
       
-      // Root comparison
+      const rootStart = performance.now();
       const computedRoot = bytesToHex(current);
       const computedRootDisplay = reverseHex(computedRoot);
       const expectedRoot = r.header.merkleRoot;
       const match = computedRootDisplay.toLowerCase() === expectedRoot.toLowerCase();
-      
       let byteDivergence = null;
       if (!match) {
-        byteDivergence = computeByteDivergence(computedRootDisplay, expectedRoot);
+        const c = computedRootDisplay.toLowerCase(), e = expectedRoot.toLowerCase();
+        let firstDiff = -1, diffCount = 0, diffPositions = [];
+        for (let i = 0; i < 64; i++) { if (c[i] !== e[i]) { if (firstDiff === -1) firstDiff = Math.floor(i / 2); diffCount++; diffPositions.push(i); } }
+        byteDivergence = { firstByteIndex: firstDiff, totalDifferingChars: diffCount, computed: c, expected: e, diffPositions };
       }
-      
+      const rootStepData = { type: 'root', computed: computedRoot, expected: expectedRoot, match };
+      const rootCheckpoint = computeStepCheckpoint(proof.length + 1, rootStepData);
       r.steps.push({
         level: proof.length + 1, type: 'root', title: 'Merkle Root Comparison',
-        detail: match ? 'Computed root matches header merkle root' : 'MISMATCH: Computed root diverges from header',
+        detail: match ? 'Computed root matches header' : 'MISMATCH: Computed root diverges',
         computedRoot, computedRootDisplay, expectedRoot: reverseHex(expectedRoot), expectedRootDisplay: expectedRoot,
-        match, byteDivergence
+        match, byteDivergence, checkpoint: rootCheckpoint
       });
+      r.hashes.stepCheckpoints.push({ step: proof.length + 1, checkpoint: rootCheckpoint });
+      stepTimings.push({ name: 'Step ' + (proof.length + 1) + ' (Root)', ms: performance.now() - rootStart });
       
       r.result.valid = match;
       if (!match) {
         r.result.failedAt = proof.length + 1;
-        r.result.reason = 'Merkle root mismatch: computed root does not equal header merkle root';
+        r.result.reason = 'Merkle root mismatch';
         r.result.likelyCause = analyzeLikelyCause(r);
         r.result.byteDivergence = byteDivergence;
       }
-      
       finalizeHashes(r);
+      r.timing.totalMs = performance.now() - startTime;
+      r.timing.steps = stepTimings;
       return r;
     }
     
     function finalizeHashes(r) {
-      const stepData = r.steps.map(s => ({ l: s.level, o: s.output || s.computedRoot }));
+      const stepData = r.steps.map(s => ({ l: s.level, o: s.output || s.computedRoot, c: s.checkpoint }));
       const verifyData = JSON.stringify({ txid: r.txid, header: r.input.blockHeader, proof: r.input.proof, steps: stepData });
       r.hashes.verificationHash = sha256Hex(stringToHex(verifyData));
       r.hashes.replayId = r.hashes.verificationHash.slice(0, 16).toUpperCase();
     }
     
-    function computeByteDivergence(computed, expected) {
-      const c = computed.toLowerCase();
-      const e = expected.toLowerCase();
-      let firstDiff = -1, diffCount = 0;
-      for (let i = 0; i < 64; i++) {
-        if (c[i] !== e[i]) {
-          if (firstDiff === -1) firstDiff = Math.floor(i / 2);
-          diffCount++;
-        }
-      }
-      return { firstByteIndex: firstDiff, totalDifferingChars: diffCount, computed: c, expected: e };
-    }
-    
     function analyzeLikelyCause(r) {
       const proof = r.input.proof;
-      if (proof.length === 0) {
-        return 'Single-transaction block with incorrect TXID or header';
-      }
-      
-      // Check if TXID appears corrupted (all zeros, all f's, etc)
+      if (proof.length === 0) return 'Single-tx block with incorrect TXID or header';
       const txid = r.txid.display;
-      if (/^0+$/.test(txid) || /^f+$/i.test(txid)) {
-        return 'Tampered or invalid TXID (null or saturated hash)';
-      }
-      
-      // Check for duplicate siblings
-      const siblingHashes = proof.map(p => p.hash.toLowerCase());
-      const uniqueSiblings = new Set(siblingHashes);
-      if (uniqueSiblings.size !== siblingHashes.length) {
-        return 'Duplicate sibling hash in Merkle branch (invalid proof structure)';
-      }
-      
-      // Check for position consistency
-      const positions = proof.map(p => (p.pos || 'R').toUpperCase());
-      if (positions.some(p => p !== 'L' && p !== 'R')) {
-        return 'Invalid sibling position indicator (must be L or R)';
-      }
-      
-      // Generic causes
-      if (proof.length === 1) {
-        return 'Possible causes: incorrect sibling hash, wrong TXID, or mismatched header';
-      }
-      
-      return 'Possible causes: corrupted Merkle branch, incorrect sibling order, TXID mismatch, or header from different block';
+      if (/^0+$/.test(txid) || /^f+$/i.test(txid)) return 'Invalid TXID (null/saturated)';
+      const sibs = proof.map(p => p.hash.toLowerCase());
+      if (new Set(sibs).size !== sibs.length) return 'Duplicate sibling hash';
+      if (proof.some(p => !['L','R'].includes((p.pos||'R').toUpperCase()))) return 'Invalid position flag';
+      return 'Corrupted branch, wrong sibling, or mismatched header';
     }
     
-    // ============================================================
-    // Rendering
-    // ============================================================
+    function generateSummaryLine(r) {
+      return (r.result.valid ? 'VALID' : 'FAILED') + ' | depth=' + r.metadata.proofDepth + ' | steps=' + r.steps.length + ' | pow=' + (r.header?.powValid ? '✓' : '✗') + ' | time=' + r.timing.totalMs.toFixed(2) + 'ms | replay=' + r.hashes.replayId;
+    }
+    
+    function computeInputHash(inputText) { return sha256Hex(stringToHex(inputText)).slice(0, 16); }
+    
     function render(r) {
       report = r;
       document.getElementById('empty-state').classList.add('hidden');
       document.getElementById('results').classList.remove('hidden');
-      
-      renderVerdict(r);
-      renderEvidence(r);
-      renderMetadata(r);
-      renderHeader(r);
-      renderTimeline(r);
-      renderTree(r);
+      const inputText = document.getElementById('envelope-input').value.trim();
+      const currentInputHash = computeInputHash(inputText);
+      if (lastInputHash === null || lastInputHash !== currentInputHash) {
+        lastInputHash = currentInputHash;
+        isLocked = true;
+        document.getElementById('envelope-input').classList.add('locked');
+        document.getElementById('envelope-input').readOnly = true;
+        document.getElementById('btn-verify').disabled = true;
+        document.getElementById('btn-unlock').style.display = 'inline-block';
+        document.getElementById('lock-indicator').classList.remove('hidden');
+        document.getElementById('locked-badge').classList.remove('hidden');
+      }
+      renderVerdict(r); renderSummaryLine(r); renderStructurePanel(r);
+      renderEvidence(r); renderMetadata(r); renderHeader(r); renderTimeline(r); renderTree(r);
     }
     
     function renderVerdict(r) {
       const box = document.getElementById('verdict-box');
       let html = '';
-      
-      if (r.result.valid) {
-        box.className = 'verdict valid';
-        html = `<div class="verdict-title"><span>✓</span> VERIFICATION PASSED</div>`;
-      } else {
-        box.className = 'verdict invalid';
-        html = `<div class="verdict-title"><span>✗</span> VERIFICATION FAILED</div>`;
-      }
-      
-      html += `<div class="verdict-hashes">`;
-      html += `<span class="label">Input Fingerprint:</span> ${r.hashes.inputFingerprint}<br>`;
-      html += `<span class="label">Verification Hash:</span> ${r.hashes.verificationHash}<br>`;
-      html += `<span class="label">Replay ID:</span> ${r.hashes.replayId}`;
-      html += `</div>`;
-      
+      box.className = 'verdict ' + (r.result.valid ? 'valid' : 'invalid');
+      html = '<div class="verdict-title"><span>' + (r.result.valid ? '✓' : '✗') + '</span> VERIFICATION ' + (r.result.valid ? 'PASSED' : 'FAILED') + '</div>';
+      html += '<div class="verdict-hashes">';
+      html += '<span class="label">Input Fingerprint:</span> ' + r.hashes.inputFingerprint + '<br>';
+      html += '<span class="label">Verification Hash:</span> ' + r.hashes.verificationHash + '<br>';
+      html += '<span class="label">Replay ID:</span> ' + r.hashes.replayId + '</div>';
       if (!r.result.valid) {
-        html += `<div class="diagnostics">`;
-        html += `<div class="diagnostics-title">Failure Diagnostics</div>`;
-        html += `<div class="diagnostics-row"><span class="label">Failed At:</span> <span class="value">Step ${r.result.failedAt}</span></div>`;
-        html += `<div class="diagnostics-row"><span class="label">Reason:</span> <span class="value">${r.result.reason}</span></div>`;
-        
+        html += '<div class="diagnostics"><div class="diagnostics-title">Failure Diagnostics</div>';
+        html += '<div class="diagnostics-row"><span class="label">Failed At:</span> Step ' + r.result.failedAt + '</div>';
+        html += '<div class="diagnostics-row"><span class="label">Reason:</span> ' + r.result.reason + '</div>';
         if (r.result.byteDivergence) {
           const bd = r.result.byteDivergence;
-          html += `<div class="diagnostics-row"><span class="label">First Diff:</span> <span class="value">Byte ${bd.firstByteIndex} (${bd.totalDifferingChars} chars differ)</span></div>`;
-          html += `<div class="byte-diff">`;
-          html += `<div>Computed: ${renderByteDiff(bd.computed, bd.expected)}</div>`;
-          html += `<div>Expected: ${renderByteDiff(bd.expected, bd.computed)}</div>`;
-          html += `</div>`;
+          html += '<div class="diagnostics-row"><span class="label">First Diff:</span> Byte ' + bd.firstByteIndex + ' (' + bd.totalDifferingChars + ' chars differ)</div>';
+          html += '<div class="byte-diff-aligned"><div>Computed: ' + renderAlignedByteDiff(bd.computed, bd.expected, 'computed') + '</div>';
+          html += '<div>Expected: ' + renderAlignedByteDiff(bd.expected, bd.computed, 'expected') + '</div></div>';
         }
-        
-        html += `<div class="diagnostics-cause">`;
-        html += `<div class="diagnostics-cause-title">LIKELY CAUSE</div>`;
-        html += `<div class="diagnostics-cause-text">${r.result.likelyCause}</div>`;
-        html += `</div>`;
-        html += `</div>`;
+        html += '<div class="diagnostics-cause"><div class="diagnostics-cause-title">LIKELY CAUSE</div>';
+        html += '<div class="diagnostics-cause-text">' + r.result.likelyCause + '</div></div></div>';
       }
-      
       box.innerHTML = html;
     }
     
-    function renderByteDiff(str, compare) {
+    function renderAlignedByteDiff(str, compare, type) {
       let html = '';
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] !== compare[i]) {
-          html += `<span class="differ">${str[i]}</span>`;
-        } else {
-          html += `<span class="match">${str[i]}</span>`;
-        }
+      for (let i = 0; i < str.length; i += 2) {
+        const byte = str.slice(i, i + 2), cmpByte = compare.slice(i, i + 2);
+        const isDiff = byte !== cmpByte;
+        const cls = isDiff ? (type === 'computed' ? 'differ' : 'differ-expect') : 'match';
+        html += '<span class="byte ' + cls + '">' + byte + '</span>';
+        if ((i + 2) % 16 === 0 && i + 2 < str.length) html += ' ';
       }
       return html;
     }
     
+    function renderSummaryLine(r) {
+      const el = document.getElementById('summary-line');
+      const summary = generateSummaryLine(r);
+      el.innerHTML = '<span><span class="status ' + (r.result.valid ? 'valid' : 'invalid') + '">' + (r.result.valid ? 'VALID' : 'FAILED') + '</span> <span class="meta">| depth=' + r.metadata.proofDepth + ' | steps=' + r.steps.length + ' | pow=' + (r.header?.powValid ? '✓' : '✗') + ' | time=' + r.timing.totalMs.toFixed(2) + 'ms | replay=' + r.hashes.replayId + '</span></span><span class="copy-btn" id="summary-copy-btn">Copy</span>';
+      el.classList.remove('hidden');
+      document.getElementById('summary-copy-btn').addEventListener('click', function() {
+        navigator.clipboard.writeText(summary).then(() => { this.textContent = 'Copied!'; setTimeout(() => { this.textContent = 'Copy'; }, 1500); });
+      });
+    }
+    
+    function renderStructurePanel(r) {
+      const panel = document.getElementById('structure-panel');
+      const sv = r.structureValidation;
+      if (!sv) { panel.classList.add('hidden'); return; }
+      panel.classList.remove('hidden');
+      panel.className = 'structure-panel ' + (sv.valid ? 'valid' : 'invalid');
+      let html = '<div class="structure-title ' + (sv.valid ? 'valid' : 'invalid') + '">' + (sv.valid ? '✓ Structure Valid' : '✗ Structural Anomaly') + '</div>';
+      for (const c of sv.checks) html += '<div class="structure-row"><span class="' + (c.pass ? 'check' : 'fail') + '">' + (c.pass ? '✓' : '✗') + '</span>' + c.name + ': ' + c.value + '</div>';
+      if (sv.anomalies.length > 0) {
+        html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--danger);">';
+        for (const a of sv.anomalies) html += '<div class="structure-row" style="color:var(--danger);">⚠ ' + a + '</div>';
+        html += '</div>';
+      }
+      panel.innerHTML = html;
+    }
+    
     function renderEvidence(r) {
       const grid = document.getElementById('evidence-grid');
-      let html = '';
-      
-      html += field('TXID (Display)', r.txid.display);
-      html += field('TXID (Internal)', r.txid.internal);
-      
+      let html = field('TXID (Display)', r.txid.display) + field('TXID (Internal)', r.txid.internal);
       if (r.header) {
-        html += field('Block Hash', r.header.blockHash);
-        html += field('Block Time', r.header.timestampISO);
+        html += field('Block Hash', r.header.blockHash) + field('Block Time', r.header.timestampISO);
         if (r.input.blockHeight) html += field('Block Height', r.input.blockHeight.toLocaleString());
         html += field('PoW Valid', r.header.powValid ? 'YES' : 'NO', r.header.powValid ? 'success' : 'danger');
-        
         const rootStep = r.steps.find(s => s.type === 'root');
         if (rootStep) {
-          html += field('Computed Root', rootStep.computedRootDisplay);
-          html += field('Header Root', rootStep.expectedRootDisplay);
+          html += field('Computed Root', rootStep.computedRootDisplay) + field('Header Root', rootStep.expectedRootDisplay);
           html += fieldFull('Root Match', rootStep.match ? 'MATCH' : 'MISMATCH', rootStep.match ? 'success' : 'danger');
         }
       }
-      
       grid.innerHTML = html;
+      document.getElementById('timing-summary').innerHTML = '<span><span class="timing-label">Total Time:</span> ' + r.timing.totalMs.toFixed(2) + 'ms</span><span><span class="timing-label">Steps:</span> ' + r.timing.steps.length + '</span>';
     }
     
     function renderMetadata(r) {
       const grid = document.getElementById('metadata-grid');
-      let html = '';
-      
-      html += field('Proof Depth', r.metadata.proofDepth + ' level' + (r.metadata.proofDepth !== 1 ? 's' : ''));
-      html += field('Bytes Processed', r.metadata.totalBytesProcessed + ' bytes');
-      html += field('Sibling Count', r.input.proof.length);
-      html += field('Computation Steps', r.steps.length);
-      
-      grid.innerHTML = html;
+      grid.innerHTML = field('Proof Depth', r.metadata.proofDepth + ' level' + (r.metadata.proofDepth !== 1 ? 's' : '')) + field('Bytes Processed', r.metadata.totalBytesProcessed + ' bytes') + field('Sibling Count', r.input.proof.length) + field('Computation Steps', r.steps.length);
     }
     
     function renderHeader(r) {
       const grid = document.getElementById('header-grid');
-      if (!r.header) { grid.innerHTML = '<p style="color:var(--text-3);">No header data</p>'; return; }
-      
+      const powVisual = document.getElementById('pow-visual');
+      if (!r.header) { grid.innerHTML = '<p style="color:var(--text-3);">No header data</p>'; powVisual.classList.add('hidden'); return; }
       const h = r.header;
-      let html = '';
-      
-      html += field('Version', h.version + ' (0x' + h.versionHex + ')');
-      html += field('Nonce', h.nonce.toLocaleString());
-      html += field('Timestamp', h.timestamp + ' (' + h.timestampISO + ')');
-      html += field('Bits', '0x' + h.bits + ' (' + h.bitsDecimal + ')');
-      html += fieldFull('Previous Block', h.prevBlock, '', 'small');
-      html += fieldFull('Merkle Root', h.merkleRoot, '', 'small');
-      
+      let html = field('Version', h.version + ' (0x' + h.versionHex + ')') + field('Nonce', h.nonce.toLocaleString()) + field('Timestamp', h.timestamp + ' (' + h.timestampISO + ')') + field('Bits', '0x' + h.bits + ' (' + h.bitsDecimal + ')');
+      html += fieldFull('Previous Block', h.prevBlock, '', 'small') + fieldFull('Merkle Root', h.merkleRoot, '', 'small');
       if (auditMode) {
         html += fieldFull('Raw Header (80 bytes)', formatHex(h.raw, 16), '', 'small');
-        html += fieldFull('Block Hash SHA256 R1', h.blockHashRound1, '', 'small');
-        html += fieldFull('Block Hash SHA256 R2', h.blockHashRound2, '', 'small');
+        html += fieldFull('SHA256 Round 1', h.blockHashRound1, '', 'small');
+        html += fieldFull('SHA256 Round 2 (internal)', h.blockHashRound2, '', 'small');
         html += fieldFull('Block Hash (display)', h.blockHash, '', 'small');
         html += fieldFull('Target Threshold', h.target, '', 'small');
       }
-      
       grid.innerHTML = html;
+      if (auditMode) {
+        powVisual.classList.remove('hidden');
+        powVisual.innerHTML = '<div class="row"><span class="label">HASH:</span> <span class="value">' + h.blockHash + '</span></div><div class="row"><span class="label">TARGET:</span> <span class="value">' + h.target + '</span></div><div class="row"><span class="label">CHECK:</span> <span class="value">HASH &lt; TARGET → </span><span class="result ' + (h.powValid ? 'valid' : 'invalid') + '">' + (h.powValid ? 'VALID' : 'INVALID') + '</span></div>';
+      } else { powVisual.classList.add('hidden'); }
     }
     
     function renderTimeline(r) {
       const el = document.getElementById('timeline');
       let html = '';
-      
       for (const s of r.steps) {
         const isFailed = s.type === 'root' && !s.match;
-        html += `<div class="step ${isFailed ? 'failed' : ''}">`;
-        html += `<div class="step-header"><span class="step-title">${s.title}</span>`;
-        
-        if (s.type === 'root') {
-          html += `<span class="step-badge ${s.match ? 'computed' : 'failed'}">${s.match ? 'MATCH' : 'MISMATCH'}</span>`;
-        } else if (s.type === 'hash') {
-          html += `<span class="step-badge computed">SHA256d</span>`;
-        } else {
-          html += `<span class="step-badge info">INPUT</span>`;
-        }
-        html += `</div>`;
-        
-        html += `<div class="step-detail">${s.detail}</div>`;
-        html += `<div class="step-data">`;
-        
-        if (s.type === 'txid') {
-          html += `<span class="label">Output:</span> <span class="hash">${s.output}</span>`;
-        } else if (s.type === 'hash') {
-          html += `<span class="label">Left:</span> <span class="hash">${s.inputLeft}</span><br>`;
-          html += `<span class="label">Right:</span> <span class="hash">${s.inputRight}</span><br>`;
-          
-          if (auditMode) {
-            html += `<div class="divider"></div>`;
-            html += `<span class="label">Concat:</span> <span class="hash small">${formatHex(s.concatenation, 32)}</span><br>`;
-            html += `<span class="label">SHA256 R1:</span> <span class="hash">${s.sha256Round1}</span><br>`;
-            html += `<span class="label">SHA256 R2:</span> <span class="hash highlight">${s.sha256Round2}</span>`;
-          } else {
-            html += `<span class="label">Result:</span> <span class="hash highlight">${s.output}</span>`;
-          }
+        const timing = r.timing.steps.find(t => t.name.includes('Step ' + s.level));
+        html += '<div class="step ' + (isFailed ? 'failed' : '') + '"><div class="step-header"><span class="step-title">' + s.title + '</span><div class="step-badges">';
+        if (s.type === 'root') html += '<span class="step-badge ' + (s.match ? 'computed' : 'failed') + '">' + (s.match ? 'MATCH' : 'MISMATCH') + '</span>';
+        else if (s.type === 'hash') html += '<span class="step-badge computed">SHA256d</span>';
+        else html += '<span class="step-badge info">INPUT</span>';
+        if (showCheckpoints && s.checkpoint) html += '<span class="step-checkpoint">CP: ' + s.checkpoint + '</span>';
+        html += '</div></div><div class="step-detail">' + s.detail + '</div>';
+        if (timing && auditMode) html += '<div class="step-timing">' + timing.ms.toFixed(3) + 'ms</div>';
+        html += '<div class="step-data">';
+        if (s.type === 'txid') html += '<span class="label">Output:</span> <span class="hash">' + s.output + '</span>';
+        else if (s.type === 'hash') {
+          html += '<span class="label">Left:</span> <span class="hash">' + s.inputLeft + '</span><br><span class="label">Right:</span> <span class="hash">' + s.inputRight + '</span><br>';
+          if (auditMode) html += '<div class="divider"></div><span class="label">Concat:</span> <span class="hash small">' + formatHex(s.concatenation, 32) + '</span><br><span class="label">SHA256 R1:</span> <span class="hash">' + s.sha256Round1 + '</span><br><span class="label">SHA256 R2:</span> <span class="hash highlight">' + s.sha256Round2 + '</span>';
+          else html += '<span class="label">Result:</span> <span class="hash highlight">' + s.output + '</span>';
         } else if (s.type === 'root') {
-          html += `<span class="label">Computed:</span> <span class="hash ${s.match ? 'success' : 'danger'}">${s.computedRoot}</span><br>`;
-          html += `<span class="label">Expected:</span> <span class="hash">${s.expectedRoot}</span>`;
-          
+          html += '<span class="label">Computed:</span> <span class="hash ' + (s.match ? 'success' : 'danger') + '">' + s.computedRoot + '</span><br><span class="label">Expected:</span> <span class="hash">' + s.expectedRoot + '</span>';
           if (!s.match && auditMode && s.byteDivergence) {
-            html += `<div class="divider"></div>`;
-            html += `<div class="byte-diff">`;
-            html += `<div>Computed: ${renderByteDiff(s.byteDivergence.computed, s.byteDivergence.expected)}</div>`;
-            html += `<div>Expected: ${renderByteDiff(s.byteDivergence.expected, s.byteDivergence.computed)}</div>`;
-            html += `</div>`;
+            html += '<div class="divider"></div><div class="byte-diff-aligned"><div>Computed: ' + renderAlignedByteDiff(s.byteDivergence.computed, s.byteDivergence.expected, 'computed') + '</div><div>Expected: ' + renderAlignedByteDiff(s.byteDivergence.expected, s.byteDivergence.computed, 'expected') + '</div></div>';
           }
         }
-        
-        html += `</div></div>`;
+        html += '</div></div>';
       }
-      
       el.innerHTML = html;
     }
     
     function renderTree(r) {
       const svg = document.getElementById('tree-svg');
-      const steps = r.steps;
-      const n = steps.length;
-      const W = 120, H = 40, LH = 60;
-      const width = 280, height = n * LH + 20;
-      
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.setAttribute('width', width);
-      svg.setAttribute('height', height);
-      
+      const steps = r.steps, n = steps.length;
+      const W = 120, H = 40, LH = 60, width = 280, height = n * LH + 20;
+      svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      svg.setAttribute('width', width); svg.setAttribute('height', height);
       let html = '';
       for (let i = 0; i < n; i++) {
-        const s = steps[i];
-        const y = (n - 1 - i) * LH + 10;
-        const x = (width - W) / 2;
-        
+        const s = steps[i], y = (n - 1 - i) * LH + 10, x = (width - W) / 2;
         let color = '#7c3aed';
         if (s.type === 'hash') color = '#16a34a';
         if (s.type === 'root') color = s.match ? '#059669' : '#dc2626';
-        
-        if (i > 0) {
-          html += `<line x1="${x+W/2}" y1="${y+H}" x2="${x+W/2}" y2="${y+LH}" stroke="${color}" stroke-width="2" opacity="0.4"/>`;
-        }
-        
+        if (i > 0) html += '<line x1="' + (x+W/2) + '" y1="' + (y+H) + '" x2="' + (x+W/2) + '" y2="' + (y+LH) + '" stroke="' + color + '" stroke-width="2" opacity="0.4"/>';
         const label = s.type === 'txid' ? 'TXID' : s.type === 'root' ? (s.match ? 'ROOT' : 'FAIL') : 'L' + s.level;
         const hash = (s.output || s.computedRoot || '').slice(0, 8) + '...';
-        
-        html += `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="4" fill="${color}"/>`;
-        html += `<text x="${x+W/2}" y="${y+16}" text-anchor="middle" fill="white" font-size="10" font-weight="600">${label}</text>`;
-        html += `<text x="${x+W/2}" y="${y+30}" text-anchor="middle" fill="white" font-size="9" font-family="monospace" opacity="0.9">${hash}</text>`;
+        html += '<rect x="' + x + '" y="' + y + '" width="' + W + '" height="' + H + '" rx="4" fill="' + color + '"/>';
+        html += '<text x="' + (x+W/2) + '" y="' + (y+14) + '" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="10" font-weight="600">' + label + '</text>';
+        html += '<text x="' + (x+W/2) + '" y="' + (y+28) + '" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="8" font-family="monospace" opacity="0.9">' + hash + '</text>';
       }
-      
       svg.innerHTML = html;
     }
     
-    function field(label, value, cls = '', size = '') {
-      return `<div class="field"><div class="field-label">${label}</div><div class="field-value ${cls} ${size}">${value}</div></div>`;
-    }
+    function field(label, value, cls, size) { return '<div class="field"><div class="field-label">' + label + '</div><div class="field-value ' + (cls||'') + ' ' + (size||'') + '">' + value + '</div></div>'; }
+    function fieldFull(label, value, cls, size) { return '<div class="field grid-full"><div class="field-label">' + label + '</div><div class="field-value ' + (cls||'') + ' ' + (size||'') + '">' + value + '</div></div>'; }
+    function formatHex(hex, chunkSize) { let result = ''; for (let i = 0; i < hex.length; i += chunkSize * 2) result += hex.slice(i, i + chunkSize * 2) + ' '; return result.trim(); }
     
-    function fieldFull(label, value, cls = '', size = '') {
-      return `<div class="field grid-full"><div class="field-label">${label}</div><div class="field-value ${cls} ${size}">${value}</div></div>`;
-    }
-    
-    function formatHex(hex, chunkSize = 16) {
-      let result = '';
-      for (let i = 0; i < hex.length; i += chunkSize * 2) {
-        result += hex.slice(i, i + chunkSize * 2) + ' ';
-      }
-      return result.trim();
-    }
-    
-    // ============================================================
-    // Export
-    // ============================================================
-    function exportJSON() {
-      if (!report) return;
-      download('spv-audit-' + report.hashes.replayId + '.json', JSON.stringify(report, null, 2), 'application/json');
-    }
-    
-    function exportText() {
-      if (!report) return;
-      download('spv-audit-' + report.hashes.replayId + '.txt', generateTextReport(report), 'text/plain');
-    }
-    
-    function copyReport() {
-      if (!report) return;
-      navigator.clipboard.writeText(generateTextReport(report)).then(() => alert('Report copied to clipboard'));
-    }
+    function exportJSON() { if (!report) return; download('spv-audit-' + report.hashes.replayId + '.json', JSON.stringify(report, null, 2), 'application/json'); }
+    function exportText() { if (!report) return; download('spv-audit-' + report.hashes.replayId + '.txt', generateTextReport(report), 'text/plain'); }
+    function copyReport() { if (!report) return; navigator.clipboard.writeText(generateTextReport(report)).then(() => alert('Report copied')); }
+    function copySummary() { if (!report) return; navigator.clipboard.writeText(generateSummaryLine(report)).then(() => alert('Summary copied')); }
     
     function generateTextReport(r) {
       let t = '='.repeat(72) + '\nSPV VERIFICATION AUDIT REPORT\n' + '='.repeat(72) + '\n\n';
-      
       t += 'Timestamp:          ' + r.timestamp + '\n';
       t += 'Result:             ' + (r.result.valid ? 'VALID' : 'INVALID') + '\n';
       t += 'Input Fingerprint:  ' + r.hashes.inputFingerprint + '\n';
       t += 'Verification Hash:  ' + r.hashes.verificationHash + '\n';
-      t += 'Replay ID:          ' + r.hashes.replayId + '\n\n';
+      t += 'Replay ID:          ' + r.hashes.replayId + '\n';
+      t += 'Total Time:         ' + r.timing.totalMs.toFixed(2) + 'ms\n\n';
+      t += 'Summary: ' + generateSummaryLine(r) + '\n\n';
+      
+      if (r.structureValidation) {
+        t += '-'.repeat(72) + '\nSTRUCTURE VALIDATION\n' + '-'.repeat(72) + '\n';
+        t += 'Status: ' + (r.structureValidation.valid ? 'VALID' : 'ANOMALY') + '\n';
+        for (const c of r.structureValidation.checks) t += '  [' + (c.pass ? '✓' : '✗') + '] ' + c.name + ': ' + c.value + '\n';
+        if (r.structureValidation.anomalies.length > 0) { t += 'Anomalies:\n'; for (const a of r.structureValidation.anomalies) t += '  ⚠ ' + a + '\n'; }
+        t += '\n';
+      }
       
       if (!r.result.valid) {
         t += '-'.repeat(72) + '\nFAILURE DIAGNOSTICS\n' + '-'.repeat(72) + '\n';
@@ -792,6 +706,7 @@
         t += 'Likely Cause: ' + r.result.likelyCause + '\n';
         if (r.result.byteDivergence) {
           t += 'First Diff:   Byte ' + r.result.byteDivergence.firstByteIndex + '\n';
+          t += 'Diff Count:   ' + r.result.byteDivergence.totalDifferingChars + ' chars\n';
           t += 'Computed:     ' + r.result.byteDivergence.computed + '\n';
           t += 'Expected:     ' + r.result.byteDivergence.expected + '\n';
         }
@@ -816,20 +731,32 @@
         t += 'Bits:         0x' + r.header.bits + ' (' + r.header.bitsDecimal + ')\n';
         t += 'Nonce:        ' + r.header.nonce + '\n';
         t += 'Block Hash:   ' + r.header.blockHash + '\n';
-        t += 'PoW Valid:    ' + (r.header.powValid ? 'Yes' : 'No') + '\n\n';
+        t += 'PoW Valid:    ' + (r.header.powValid ? 'Yes' : 'No') + '\n';
+        t += '\nHeader Hash Derivation:\n';
+        t += '  Raw Header:   ' + r.header.raw + '\n';
+        t += '  SHA256 R1:    ' + r.header.blockHashRound1 + '\n';
+        t += '  SHA256 R2:    ' + r.header.blockHashRound2 + '\n';
+        t += '  Block Hash:   ' + r.header.blockHash + '\n';
+        t += '  Target:       ' + r.header.target + '\n';
+        t += '  HASH < TARGET: ' + (r.header.powValid ? 'YES' : 'NO') + '\n\n';
       }
       
       t += '-'.repeat(72) + '\nMERKLE BRANCH (' + r.input.proof.length + ' nodes)\n' + '-'.repeat(72) + '\n';
-      r.input.proof.forEach((n, i) => { t += `[${i}] ${n.hash} (${n.pos})\n`; });
+      r.input.proof.forEach((n, i) => { t += '[' + i + '] ' + n.hash + ' (' + n.pos + ')\n'; });
+      t += '\n';
+      
+      t += '-'.repeat(72) + '\nSTEP CHECKPOINTS\n' + '-'.repeat(72) + '\n';
+      for (const sc of r.hashes.stepCheckpoints) t += 'Step ' + sc.step + ': ' + sc.checkpoint + '\n';
       t += '\n';
       
       t += '-'.repeat(72) + '\nCOMPUTATION STEPS\n' + '-'.repeat(72) + '\n';
       for (const s of r.steps) {
-        t += '\n' + s.title + '\n';
+        const timing = r.timing.steps.find(ts => ts.name.includes('Step ' + s.level));
+        t += '\n' + s.title + (timing ? ' [' + timing.ms.toFixed(3) + 'ms]' : '') + '\n';
+        t += '  Checkpoint: ' + s.checkpoint + '\n';
         t += '  ' + s.detail + '\n';
-        if (s.type === 'txid') {
-          t += '  Output:     ' + s.output + '\n';
-        } else if (s.type === 'hash') {
+        if (s.type === 'txid') t += '  Output:     ' + s.output + '\n';
+        else if (s.type === 'hash') {
           t += '  Left:       ' + s.inputLeft + '\n';
           t += '  Right:      ' + s.inputRight + '\n';
           t += '  Concat:     ' + s.concatenation + '\n';
@@ -842,6 +769,10 @@
         }
       }
       
+      t += '\n' + '-'.repeat(72) + '\nTIMING ANALYSIS\n' + '-'.repeat(72) + '\n';
+      t += 'Total:     ' + r.timing.totalMs.toFixed(2) + 'ms\n';
+      for (const ts of r.timing.steps) t += '  ' + ts.name + ': ' + ts.ms.toFixed(3) + 'ms\n';
+      
       t += '\n' + '='.repeat(72) + '\nEND OF REPORT\n' + '='.repeat(72) + '\n';
       return t;
     }
@@ -853,9 +784,17 @@
       a.click();
     }
     
-    // ============================================================
-    // Events
-    // ============================================================
+    function unlock() {
+      isLocked = false;
+      document.getElementById('envelope-input').classList.remove('locked');
+      document.getElementById('envelope-input').readOnly = false;
+      document.getElementById('btn-verify').disabled = false;
+      document.getElementById('btn-unlock').style.display = 'none';
+      document.getElementById('lock-indicator').classList.add('hidden');
+      document.getElementById('locked-badge').classList.add('hidden');
+      lastInputHash = null;
+    }
+    
     document.getElementById('btn-verify').addEventListener('click', () => {
       const input = document.getElementById('envelope-input').value.trim();
       if (!input) return alert('Input required');
@@ -868,26 +807,36 @@
     });
     
     document.getElementById('btn-load').addEventListener('click', () => {
+      unlock();
       document.getElementById('envelope-input').value = JSON.stringify(SAMPLE, null, 2);
       render(verify(SAMPLE));
     });
     
     document.getElementById('btn-clear').addEventListener('click', () => {
+      unlock();
       document.getElementById('envelope-input').value = '';
       document.getElementById('results').classList.add('hidden');
       document.getElementById('empty-state').classList.remove('hidden');
       report = null;
     });
     
+    document.getElementById('btn-unlock').addEventListener('click', unlock);
     document.getElementById('btn-export-json').addEventListener('click', exportJSON);
     document.getElementById('btn-export-text').addEventListener('click', exportText);
     document.getElementById('btn-copy').addEventListener('click', copyReport);
+    document.getElementById('btn-copy-summary').addEventListener('click', copySummary);
     
     document.getElementById('audit-toggle').addEventListener('click', function() {
       auditMode = !auditMode;
       this.classList.toggle('active', auditMode);
       document.getElementById('audit-badge').classList.toggle('hidden', !auditMode);
       if (report) render(report);
+    });
+    
+    document.getElementById('checkpoint-toggle').addEventListener('click', function() {
+      showCheckpoints = !showCheckpoints;
+      this.textContent = showCheckpoints ? 'Hide Checkpoints' : 'Show Checkpoints';
+      if (report) renderTimeline(report);
     });
     
     ['header', 'tree'].forEach(id => {

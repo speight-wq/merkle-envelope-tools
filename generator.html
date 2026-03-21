@@ -105,7 +105,25 @@
         <label class="label">Output Index (vout)</label>
         <input type="number" class="input input-narrow" id="vout-input" value="0" min="0">
       </div>
-      <button class="btn btn-primary" id="fetch-txid-btn">Generate Envelope</button>
+      <div class="mode-toggle" style="margin-top: 12px;">
+        <input type="checkbox" id="chain-mode">
+        <label for="chain-mode">Chain Mode</label>
+        <span class="hint">Fetch ancestor transactions</span>
+      </div>
+      <div id="chain-options" class="hidden" style="margin-top: 8px; padding: 12px; background: var(--surface); border-radius: 6px;">
+        <div style="display: flex; gap: 16px; align-items: center;">
+          <div>
+            <label class="label">Depth</label>
+            <input type="number" class="input input-narrow" id="chain-depth" value="2" min="1" max="5">
+          </div>
+          <div>
+            <label class="label">Follow Input</label>
+            <input type="number" class="input input-narrow" id="chain-vin" value="0" min="0">
+          </div>
+        </div>
+        <div class="hint" style="margin-top: 6px;">Depth = ancestor hops (1-5). Follow Input = which input index to trace.</div>
+      </div>
+      <button class="btn btn-primary" id="fetch-txid-btn" style="margin-top: 12px;">Generate Envelope</button>
     </div>
 
     <div id="tab-address" class="tab-content">
@@ -736,12 +754,15 @@
     }
 
     // ==========================================
-    // Fetch by TXID
+    // Fetch by TXID (with Chain Mode support)
     // ==========================================
     document.getElementById('fetch-txid-btn').addEventListener('click', async function() {
       const txid = document.getElementById('txid-input').value.trim();
       const vout = parseInt(document.getElementById('vout-input').value) || 0;
       const multiSourceEnabled = document.getElementById('multi-source-mode').checked;
+      const chainMode = document.getElementById('chain-mode').checked;
+      const chainDepth = chainMode ? Math.min(5, Math.max(1, parseInt(document.getElementById('chain-depth').value) || 2)) : 1;
+      const chainVin = chainMode ? parseInt(document.getElementById('chain-vin').value) || 0 : 0;
 
       if (!txid || txid.length !== 64) {
         showError('Enter a valid 64-character TXID');
@@ -753,7 +774,13 @@
       envelopes = [];
 
       try {
-        if (multiSourceEnabled) {
+        if (chainMode) {
+          // Chain mode: recursively fetch ancestors
+          showProgress(5, 'Building chain (depth ' + chainDepth + ')...');
+          const chain = await buildChain(txid, vout, chainDepth, chainVin);
+          envelopes = chain;
+          showProgress(100, 'Chain complete: ' + chain.length + ' hops');
+        } else if (multiSourceEnabled) {
           // Multi-source mode
           const result = await generateEnvelopeMultiSource(txid, vout);
           
@@ -784,6 +811,82 @@
         hideProgress();
       }
     });
+
+    // ==========================================
+    // Build Chain (recursive ancestor fetch)
+    // ==========================================
+    async function buildChain(startTxid, startVout, depth, followVin) {
+      const chain = [];
+      let currentTxid = startTxid;
+      let currentVout = startVout;
+      
+      for (let i = 0; i < depth; i++) {
+        const pct = Math.round((i / depth) * 90) + 5;
+        showProgress(pct, `Fetching hop ${i + 1}/${depth}: ${currentTxid.slice(0, 12)}...`);
+        
+        // Fetch envelope for current transaction
+        const envelope = await generateEnvelopeForTxid(currentTxid, currentVout);
+        chain.push(envelope);
+        
+        // If not last hop, find parent transaction
+        if (i < depth - 1) {
+          // Parse rawTx to find input
+          const parentInfo = findParentTx(envelope.rawTx, followVin);
+          if (!parentInfo) {
+            showProgress(pct, `Chain ended at hop ${i + 1}: no more inputs`);
+            break;
+          }
+          
+          // Check for coinbase (no parent)
+          if (parentInfo.txid === '0000000000000000000000000000000000000000000000000000000000000000') {
+            showProgress(pct, `Chain ended at hop ${i + 1}: reached coinbase`);
+            break;
+          }
+          
+          currentTxid = parentInfo.txid;
+          currentVout = parentInfo.vout;
+        }
+      }
+      
+      return chain;
+    }
+    
+    // ==========================================
+    // Parse rawTx to find parent transaction
+    // ==========================================
+    function findParentTx(rawTxHex, inputIndex) {
+      try {
+        let offset = 0;
+        const readBytes = (n) => { const b = rawTxHex.slice(offset, offset + n * 2); offset += n * 2; return b; };
+        const readVarInt = () => {
+          const first = parseInt(readBytes(1), 16);
+          if (first < 0xfd) return first;
+          if (first === 0xfd) return parseInt(reverseHex(readBytes(2)), 16);
+          if (first === 0xfe) return parseInt(reverseHex(readBytes(4)), 16);
+          return parseInt(reverseHex(readBytes(8)), 16);
+        };
+        
+        readBytes(4); // version
+        const inputCount = readVarInt();
+        
+        if (inputIndex >= inputCount) return null;
+        
+        for (let i = 0; i <= inputIndex; i++) {
+          const prevTxid = reverseHex(readBytes(32));
+          const prevVout = parseInt(reverseHex(readBytes(4)), 16);
+          const scriptLen = readVarInt();
+          readBytes(scriptLen); // script
+          readBytes(4); // sequence
+          
+          if (i === inputIndex) {
+            return { txid: prevTxid, vout: prevVout };
+          }
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
 
     // ==========================================
     // Fetch by Address
@@ -984,7 +1087,8 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'envelopes-' + Date.now() + '.json';
+      const filename = envelopes.length > 1 ? 'chain-' + Date.now() + '.json' : 'envelope-' + Date.now() + '.json';
+      a.download = filename;
       a.click();
     });
 
@@ -996,6 +1100,12 @@
       });
     });
 
+    // Chain mode toggle
+    document.getElementById('chain-mode').addEventListener('change', function() {
+      document.getElementById('chain-options').classList.toggle('hidden', !this.checked);
+      document.getElementById('fetch-txid-btn').textContent = this.checked ? 'Generate Chain' : 'Generate Envelope';
+    });
+
   })();
   </script>
   
@@ -1005,7 +1115,7 @@
     <a href="verifier.html" style="color: #228be6; text-decoration: none;">Verifier</a> · 
     <a href="signer.html" style="color: #228be6; text-decoration: none;">Signer</a> · 
     
-    <a href="explorer.html" style="color: #228be6; text-decoration: none;">Explorer</a> · 
+    <a href="explorer.html" style="color: #228be6; text-decoration: none;">Explorer</a> · <a href="chain.html" style="color: #228be6; text-decoration: none;">Chain</a> · 
     <a href="tests.html" style="color: #228be6; text-decoration: none;">Tests</a> · 
     <a href="tests-mainnet.html" style="color: #228be6; text-decoration: none;">Mainnet</a>
   </footer>

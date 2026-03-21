@@ -20,22 +20,19 @@ ONLINE                          OFFLINE                         ONLINE
 ─────────────────────────────   ─────────────────────────────   ──────────────
 generator.html                  signer.html                     Broadcast
  → Enter address/TXID            → Load headers.bin (optional)   → whatsonchain.com/broadcast
- → Download envelope.json        → Load envelope(s)              → Or any BSV node
-                                 → Enter WIF private key
-headers-generator.html           → Set destination + amount
- → Download headers.bin          → Download signed tx hex
-         │                                │
-         └────── USB transfer ────────────┘
+ → Toggle Chain Mode (optional)  → Load envelope(s)              → Or any BSV node
+ → Download envelope.json        → Enter WIF private key
+                                 → Set destination + amount
+headers-generator.html           → Download signed tx hex
+ → Download headers.bin                  │
+         │                               │
+         └────── USB transfer ───────────┘
 
-                                AUDIT / DEBUG
+                                VERIFY / AUDIT
                                 ─────────────────────────────
-                                explorer.html
-                                 → Paste envelope
-                                 → Step-by-step verification
-                                 → Export evidence report
-
-                                verifier.html
-                                 → Quick pass/fail check
+                                verifier.html → Quick pass/fail
+                                explorer.html → Forensic analysis
+                                chain.html    → Lineage verification
 ```
 
 ---
@@ -44,14 +41,17 @@ headers-generator.html           → Set destination + amount
 
 | Tool | Network | Purpose |
 |------|---------|---------|
-| generator.html | Online | Create Merkle envelopes from TXID or address |
+| generator.html | Online | Create Merkle envelopes (single or chain mode) |
 | headers-generator.html | Online | Download verified header chain |
 | signer.html | Offline | Sign transactions using envelopes |
 | verifier.html | Offline | Standalone envelope verification |
 | explorer.html | Offline | Forensic SPV proof analysis and audit |
+| chain.html | Offline | Deterministic lineage verification |
 | tests.html | Offline | 58 cryptographic test vectors |
 | tests-mainnet.html | Offline | Real mainnet transaction verification |
 | verify_vectors.py | Offline | Python verification script (no dependencies) |
+
+**Chain Mode:** Toggle "Chain Mode" in generator.html to recursively fetch ancestor transactions (1-5 hops). Outputs an array of envelopes ordered child → ancestor, ready for chain.html verification.
 
 ---
 
@@ -69,6 +69,18 @@ headers-generator.html           → Set destination + amount
 ```
 
 Both `vout` and (`blockHeader` + `proof`) are required. No silent defaults.
+
+**Universal Sample (Block 170 — Satoshi → Hal Finney):**
+All tools include this sample for testing. Works in explorer.html, verifier.html, and chain.html:
+```json
+{
+  "txid": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+  "rawTx": "0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000",
+  "blockHeader": "0100000055bd840a78798ad0da853f68974f3d183e2bd1db6a842c1feecf222a00000000ff104ccb05421ab93e63f8c3ce5c2c2e9dbb37de2764b3a3175c8166562cac7d51b96a49ffff001d283e9e70",
+  "proof": [{"hash": "82501c1178fa0b222c1f3d474ec726b832013f0a532b44bb620cce8624a5feb1", "pos": "L"}],
+  "blockHeight": 170
+}
+```
 
 ---
 
@@ -137,14 +149,15 @@ Get-ChildItem lib\*.js, signer.html, generator.html, verifier.html, headers-gene
 | lib/sighash.js | `297151d898312ac0287abac527902ab4dec22804bbe1b782d4785bbbe789892f` |
 | lib/headers.js | `3be36c561c47dae60a57f20371627471d735367b45ad3b96b30cdc01e57f3363` |
 | lib/snapshot.js | `03e4010677d5bfe40d1273be6e075c760c380b2ada6c471d7a743f6f303c6954` |
-| lib/mainnet-vectors.js | `de0fed524c288ccdc527946d4f2e29e436b1841ea31d6f308bfa1ebf2d436d4c` |
-| generator.html | `50e28677db34340442ac87466cfc82cd45343c24c4c35327952e6ce1a5d68092` |
-| headers-generator.html | `5510a65c95e114c8bd41a1938a4201851d4b09cac858baf785427cde0b9632f8` |
-| signer.html | `12eab37c1c8db64f08cad40ff65299cfcd494fd29e3bf6f592bd9e21473f0ecb` |
-| verifier.html | `349c547d0305a557c4e1e4995e8e873d92929a3b43166b0144776663d56a48a4` |
-| explorer.html | `9d4706eea7d9fb287233ac5212d1bb92586119191661135f0efc1063634977a2` |
-| tests.html | `4dc79ecae5878fe687cca7919031681d5c63407b652ebd6220606ae80ef70969` |
-| tests-mainnet.html | `a083922ed325b5eb8898039c173ec19d9da5032bb107ecf59ffcf2db1f16a8e8` |
+| lib/mainnet-vectors.js | `33c961cd0227eeb0d347ba82cf0e19184b1bbb559c121071652cde4c28ea29e1` |
+| generator.html | `baff7530903f9ddb197a725df0a2fcfbb8cb6b35f91758582bc51cce797049e8` |
+| headers-generator.html | `552d2a4f4b6a22fcd647f1337c8b823c00acbc3d402d194fa8570d24ce76da2e` |
+| signer.html | `b3fd8b6e3a6e8aabbd6c9cf0e528f5d73295dcea58cca9af8ba7f2a22cf329d8` |
+| verifier.html | `934e4cfc7b0366ccad88fa86a441ab426a09cd9df86577606ac657d2f45db11c` |
+| explorer.html | `d5bf2f975643ea7e256cf4989f2f1d575e2780d6bac357fa187141377650beb5` |
+| chain.html | `4b6e0a8e305f9f9879b5b635327e70e111d4865b1777b090656d7654dec7eb0f` |
+| tests.html | `4f6f6edbd62a8b8d29814773195eaf1159ccbfc1f681bdf9d2f62f5cd62c6830` |
+| tests-mainnet.html | `3f17b7771c2f7ed81845ab0eba92d411a150925584b6a589de2b41a05c3278c1` |
 | verify_vectors.py | `03691964efcd255b7fcd5f62b9e7f7bf69d46e5d61cb31dc96ff83a97d7692a6` |
 
 ---
@@ -195,6 +208,48 @@ All tested against standard vectors. See TEST-VECTORS.md.
 
 ---
 
+## Proof Chain
+
+`chain.html` — Protocol v1.0.0 deterministic lineage verification.
+
+**Verification Phases (per spec):**
+1. Structural validation — Hex encoding, field lengths, proof format
+2. Ordering validation — Detect REVERSED or UNLINKED chains
+3. Per-hop verification — TXID, PoW, Merkle (fail-fast)
+4. Linkage verification — Child input references parent TXID
+5. Value continuity — Parent output ≥ child claimed satoshis
+6. Hash derivation — Canonical serialization → deterministic hashes
+
+**Canonical Serialization:**
+```
+hop_serialized = txid (32) || vout (4, LE) || satoshis (8, LE) ||
+                 rawTx || rawTx_length (4, LE) || blockHeader (80) ||
+                 proof_count (2, LE) || [hash (32) || pos (1)]...
+```
+
+**Hash Derivations:**
+| Hash | Derivation |
+|------|------------|
+| `hopVerificationHash` | SHA256(hop_serialized) |
+| `inputFingerprint` | SHA256(chain_serialized)[0:16] |
+| `chainVerificationHash` | SHA256(concat(hopHashes)) |
+
+**Failure Types:**
+- `STRUCTURE_INVALID` — Malformed envelope
+- `ORDERING_INVALID` — REVERSED or UNLINKED
+- `TXID_MISMATCH` — SHA256d(rawTx) ≠ claimed
+- `POW_INVALID` — Block hash ≥ target
+- `MERKLE_MISMATCH` — Computed root ≠ header root
+- `LINKAGE_BROKEN` — No input references parent
+- `VALUE_MISMATCH` — Parent output < child claimed
+
+**Determinism Guarantee:**
+Same input bytes → identical hashes across all implementations. No timestamps, randomness, or environment-dependent values in hash derivations.
+
+See `CHAIN-PROTOCOL-SPEC.md` for complete specification.
+
+---
+
 ## Mainnet Test Vectors
 
 Real BSV transactions verified end-to-end:
@@ -235,9 +290,11 @@ headers-generator.html
 signer.html         # Offline signing
 verifier.html       # Standalone verification
 explorer.html       # Forensic SPV proof analysis
+chain.html          # Deterministic lineage verification
 tests.html          # Unit test suite
 tests-mainnet.html  # Mainnet verification tests
 verify_vectors.py   # Python verification (standalone)
+CHAIN-PROTOCOL-SPEC.md  # Proof Chain Protocol v1.0.0
 ```
 
 ---
