@@ -189,7 +189,7 @@ All tested against standard vectors. See TEST-VECTORS.md.
 
 ## SPV Proof Explorer
 
-`explorer.html` is a forensic-grade SPV verification instrument for auditing Merkle proofs.
+`explorer.html` Deterministic SPV verification instrument for forensic auditing of Merkle proofs.
 
 **Features:**
 - **Byte-level transparency** — Full concatenation hex, double SHA256 rounds exposed
