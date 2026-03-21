@@ -210,7 +210,7 @@ All tested against standard vectors. See TEST-VECTORS.md.
 
 ## Proof Chain
 
-`chain.html` — Protocol v1.0.0 deterministic lineage verification.
+`chain.html` — Deterministic lineage verification.
 
 **Verification Phases (per spec):**
 1. Structural validation — Hex encoding, field lengths, proof format
