@@ -187,64 +187,151 @@ All tested against standard vectors. See TEST-VECTORS.md.
 
 ---
 
-## SPV Proof Explorer
+## Verification Instruments
 
-`explorer.html` Deterministic SPV verification instrument for forensic auditing of Merkle proofs.
+This toolkit includes two verification instruments. Both are deterministic: identical inputs produce identical outputs across environments, implementations, and time.
 
-**Features:**
-- **Byte-level transparency** — Full concatenation hex, double SHA256 rounds exposed
-- **Explicit direction logic** — Shows sibling position (L/R) and operation order
-- **Block header breakdown** — Parsed fields: version, prevBlock, merkleRoot, timestamp, bits, nonce
-- **Failure diagnostics** — Exact byte divergence, likely cause analysis
-- **Deterministic hashes** — Input fingerprint, verification hash, replay ID for cross-system consistency
-- **Audit mode toggle** — Standard (clean) vs Audit (full raw data)
-- **Export** — JSON and text reports with all computation steps
-
-**Use cases:**
-- Dispute resolution — Prove transaction inclusion with exportable evidence
-- Technical audits — Step-by-step hash verification
-- Debugging — Identify exactly where/why a proof fails
-- Education — Watch Merkle verification happen
+These tools do not just return "valid" or "invalid." They produce a reproducible cryptographic fingerprint of the verification process itself — enabling independent verification, dispute resolution, and automated integrity checks without trusting any API or third party.
 
 ---
 
-## Proof Chain
+## SPV Proof Explorer
 
-`chain.html` — Deterministic lineage verification.
+`explorer.html` — Single-transaction forensic verification.
 
-**Verification Phases (per spec):**
-1. Structural validation — Hex encoding, field lengths, proof format
-2. Ordering validation — Detect REVERSED or UNLINKED chains
-3. Per-hop verification — TXID, PoW, Merkle (fail-fast)
-4. Linkage verification — Child input references parent TXID
-5. Value continuity — Parent output ≥ child claimed satoshis
-6. Hash derivation — Canonical serialization → deterministic hashes
+Verifies one SPV envelope with full byte-level transparency. Every computation step is exposed, hashed, and exportable.
 
-**Canonical Serialization:**
+**Verification Transparency**
+- Complete Merkle path visualization with concatenation order
+- Double SHA256 rounds shown independently  
+- Block header parsed into constituent fields
+- Sibling position (L/R) explicitly rendered at each level
+
+**Deterministic Outputs**
+- **Input Fingerprint** — SHA256 of raw input, truncated to 32 hex chars
+- **Verification Hash** — SHA256 of all computation outputs
+- **Replay ID** — Derived identifier for cross-system consistency
+
+**Forensic Diagnostics**
+- Byte-level diff on hash mismatches
+- Failure localization to exact proof level
+- Likely cause analysis with actionable detail
+- Audit mode toggle for full raw data exposure
+
+**Block Validation**
+- Header hash computation (SHA256d)
+- PoW verification against decoded nBits target
+- Timestamp, version, and nonce extraction
+
+**Export:** JSON and text reports containing all intermediate values, suitable for audit trails and dispute evidence.
+
+---
+
+## Proof Chain Verifier
+
+`chain.html` — Multi-hop ancestry verification (Protocol v1.0.0).
+
+Verifies a chain of linked transactions from child to ancestor. Confirms that value flowed through a cryptographically valid path, with each hop independently verified for SPV integrity and correct linkage.
+
+**Verification Phases**
+
+| Phase | Check |
+|-------|-------|
+| 1. Structure | Hex encoding, field lengths, proof array format |
+| 2. Ordering | Chain flows child → ancestor, detect REVERSED/UNLINKED |
+| 3. Per-Hop SPV | TXID, PoW, Merkle proof (fail-fast on first failure) |
+| 4. Linkage | Child input must reference parent TXID + vout |
+| 5. Value Continuity | Parent output ≥ child claimed satoshis |
+| 6. Hash Derivation | Canonical serialization → deterministic chain hash |
+
+**Deterministic Outputs**
+- **hopVerificationHash** — Per-hop integrity fingerprint
+- **inputFingerprint** — SHA256 of serialized chain (first 16 bytes)
+- **chainVerificationHash** — SHA256 of concatenated hop hashes
+
+---
+
+## Deterministic Hash Layer
+
+All verification outputs derive from canonical byte serialization. No timestamps, randomness, or environment-dependent values enter the hash computation.
+
+**Canonical Hop Serialization**
 ```
-hop_serialized = txid (32) || vout (4, LE) || satoshis (8, LE) ||
-                 rawTx || rawTx_length (4, LE) || blockHeader (80) ||
-                 proof_count (2, LE) || [hash (32) || pos (1)]...
+hop_serialized =
+    txid (32 bytes, no reversal)
+    vout (4 bytes, LE)
+    satoshis (8 bytes, LE; 0xFF...FF if absent)
+    rawTx (variable)
+    rawTx_length (4 bytes, LE)
+    blockHeader (80 bytes)
+    proof_count (2 bytes, LE)
+    [hash (32 bytes) || position (1 byte: 0x00=L, 0x01=R)] × N
 ```
 
-**Hash Derivations:**
-| Hash | Derivation |
-|------|------------|
-| `hopVerificationHash` | SHA256(hop_serialized) |
-| `inputFingerprint` | SHA256(chain_serialized)[0:16] |
-| `chainVerificationHash` | SHA256(concat(hopHashes)) |
+**Hash Derivations**
 
-**Failure Types:**
-- `STRUCTURE_INVALID` — Malformed envelope
-- `ORDERING_INVALID` — REVERSED or UNLINKED
-- `TXID_MISMATCH` — SHA256d(rawTx) ≠ claimed
-- `POW_INVALID` — Block hash ≥ target
-- `MERKLE_MISMATCH` — Computed root ≠ header root
-- `LINKAGE_BROKEN` — No input references parent
-- `VALUE_MISMATCH` — Parent output < child claimed
+| Output | Derivation |
+|--------|------------|
+| `hopVerificationHash` | `SHA256(hop_serialized)` |
+| `inputFingerprint` | `SHA256(chain_serialized)[0:16]` |
+| `chainVerificationHash` | `SHA256(hopHash[0] \|\| hopHash[1] \|\| ... \|\| hopHash[N])` |
 
-**Determinism Guarantee:**
-Same input bytes → identical hashes across all implementations. No timestamps, randomness, or environment-dependent values in hash derivations.
+Two independent implementations following this specification will produce byte-identical outputs for the same input.
+
+---
+
+## Failure Types
+
+| Code | Trigger |
+|------|---------|
+| `STRUCTURE_INVALID` | Malformed envelope, invalid hex, wrong field length |
+| `ORDERING_INVALID` | Chain not ordered child → ancestor (REVERSED or UNLINKED) |
+| `TXID_MISMATCH` | SHA256d(rawTx) ≠ claimed txid |
+| `POW_INVALID` | Block hash ≥ difficulty target |
+| `MERKLE_MISMATCH` | Computed Merkle root ≠ header Merkle root |
+| `LINKAGE_BROKEN` | Child input does not reference parent TXID |
+| `VALUE_MISMATCH` | Parent output value < child claimed satoshis |
+
+Verification halts at the first failure. The failure type, hop index, and diagnostic detail are returned for forensic analysis.
+
+---
+
+## Determinism Guarantee
+
+Given identical input bytes, these tools produce identical:
+- `hopVerificationHash` for each hop
+- `inputFingerprint` for the chain
+- `chainVerificationHash` for the full verification
+
+**Prohibited in hash derivation:**
+- Timestamps
+- Random values  
+- Floating-point arithmetic
+- Environment-dependent data
+- Non-deterministic iteration order
+
+This guarantee enables:
+- Cross-system verification comparison
+- Automated regression testing
+- Dispute resolution with cryptographic evidence
+- Long-term audit trails
+
+---
+
+## Why This Matters
+
+Most verification tools return a binary result: valid or invalid. The computation is opaque. The process cannot be independently reproduced. You trust the tool.
+
+These instruments take a different approach:
+
+1. **Transparent** — Every intermediate hash, concatenation, and comparison is exposed
+2. **Reproducible** — Same input produces same fingerprint, anywhere, anytime
+3. **Independently verifiable** — No API calls, no external dependencies, no hidden steps
+4. **Forensic-grade** — Outputs are suitable for audit trails, dispute resolution, and legal evidence
+
+The verification fingerprint is not metadata. It is a cryptographic commitment to the exact computation that occurred. If two parties run the same input and get the same fingerprint, they have mathematically proven they performed identical verification.
+
+See `CHAIN-PROTOCOL-SPEC.md` for the complete formal specification.
 
 ---
 
