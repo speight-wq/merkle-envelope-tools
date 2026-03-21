@@ -1,6 +1,14 @@
 # Merkle Envelope Tools
 
-Offline BSV transaction signing with Merkle proof verification.
+**Deterministic SPV verification and forensic audit instruments for Bitcoin SV.**
+
+This project implements a fully offline, reproducible verification layer for Bitcoin transactions.
+
+It does not just return “valid” or “invalid.”
+
+It produces a **cryptographic fingerprint of the entire verification process** — enabling independent validation, cross-system reproducibility and forensic auditability without trusting any API, node or third party.
+
+If verification cannot be reproduced, it is not verification — it is trust.
 
 ## What It Does
 
@@ -320,9 +328,13 @@ This guarantee enables:
 
 ## Why This Matters
 
-Most verification tools return a binary result: valid or invalid. The computation is opaque. The process cannot be independently reproduced. You trust the tool.
+Most verification tools return a binary result: valid or invalid.
 
-These instruments take a different approach:
+The computation is opaque.
+The process cannot be independently reproduced.
+You trust the output.
+
+This project takes a different approach.
 
 1. **Transparent** — Every intermediate hash, concatenation, and comparison is exposed
 2. **Reproducible** — Same input produces same fingerprint, anywhere, anytime
