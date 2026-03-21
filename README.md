@@ -191,13 +191,13 @@ All tested against standard vectors. See TEST-VECTORS.md.
 
 This toolkit includes two verification instruments. Both are deterministic: identical inputs produce identical outputs across environments, implementations, and time.
 
-These tools do not just return "valid" or "invalid." They produce a reproducible cryptographic fingerprint of the verification process itself — enabling independent verification, dispute resolution, and automated integrity checks without trusting any API or third party.
+These tools do not just return "valid" or "invalid." They produce a reproducible cryptographic fingerprint of the verification process itself — enabling independent verification, dispute resolution and automated integrity checks without trusting any API or third party.
 
 ---
 
 ## SPV Proof Explorer
 
-`explorer.html` — Single-transaction forensic verification.
+`explorer.html` — Single transaction forensic verification.
 
 Verifies one SPV envelope with full byte-level transparency. Every computation step is exposed, hashed, and exportable.
 
@@ -229,7 +229,7 @@ Verifies one SPV envelope with full byte-level transparency. Every computation s
 
 ## Proof Chain Verifier
 
-`chain.html` — Multi-hop ancestry verification (Protocol v1.0.0).
+`chain.html` — Multi-hop ancestry verification.
 
 Verifies a chain of linked transactions from child to ancestor. Confirms that value flowed through a cryptographically valid path, with each hop independently verified for SPV integrity and correct linkage.
 
@@ -330,8 +330,6 @@ These instruments take a different approach:
 4. **Forensic-grade** — Outputs are suitable for audit trails, dispute resolution, and legal evidence
 
 The verification fingerprint is not metadata. It is a cryptographic commitment to the exact computation that occurred. If two parties run the same input and get the same fingerprint, they have mathematically proven they performed identical verification.
-
-See `CHAIN-PROTOCOL-SPEC.md` for the complete formal specification.
 
 ---
 
