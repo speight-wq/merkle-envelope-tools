@@ -389,7 +389,6 @@ chain.html          # Deterministic lineage verification
 tests.html          # Unit test suite
 tests-mainnet.html  # Mainnet verification tests
 verify_vectors.py   # Python verification (standalone)
-CHAIN-PROTOCOL-SPEC.md  # Proof Chain Protocol v1.0.0
 ```
 
 ---
