@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'none';">
+  <title>Envelope Verifier — Merkle Envelope Tools</title>
+  <script src="lib/crypto.js"></script>
+  <script src="lib/encoding.js"></script>
+  <script src="lib/headers.js"></script>
+  <script src="lib/bump.js"></script>
+  <script src="lib/beef.js"></script>
+  <style>
+    :root { --bg: #fff; --surface: #f8f9fa; --border: #dee2e6; --text: #212529; --text-2: #495057; --text-3: #868e96; --accent: #228be6; --success: #2f9e44; --success-bg: #d3f9d8; --warning: #e67700; --warning-bg: #fff3bf; --danger: #e03131; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 32px 24px; max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--text-2); margin-bottom: 24px; }
+    .subtitle a { color: var(--accent); text-decoration: none; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+    .field { margin-bottom: 16px; }
+    .label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .input { width: 100%; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; }
+    .input:focus { outline: none; border-color: var(--accent); }
+    textarea.input { min-height: 150px; resize: vertical; }
+    .btn { display: inline-block; padding: 12px 24px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-primary { background: var(--accent); color: white; }
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .result-box { border-radius: 8px; padding: 20px; margin-top: 20px; }
+    .result-box.valid { background: var(--success-bg); border: 2px solid var(--success); }
+    .result-box.invalid { background: #ffe3e3; border: 2px solid var(--danger); }
+    .result-box.caution { background: var(--warning-bg); border: 2px solid var(--warning); }
+    .result-box.caution .result-title { color: var(--warning); }
+    .result-title { font-weight: 600; margin-bottom: 12px; font-size: 1.1rem; }
+    .result-box.valid .result-title { color: var(--success); }
+    .result-box.invalid .result-title { color: var(--danger); }
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: var(--text-3); }
+    .info-value { font-family: monospace; font-size: 0.85rem; text-align: right; max-width: 60%; word-break: break-all; }
+    .check-item { padding: 8px 0; display: flex; align-items: center; gap: 8px; }
+    .check-pass { color: var(--success); }
+    .check-fail { color: var(--danger); }
+    .check-warn { color: var(--warning); }
+    footer { text-align: center; color: var(--text-3); font-size: 0.8rem; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Envelope Verifier</h1>
+  <p class="subtitle">Verify Merkle envelopes offline. <a href="https://github.com/speight-wq/merkle-envelope-tools" target="_blank" rel="noopener">GitHub</a></p>
+
+  <div class="section">
+    <div class="section-title">Paste Envelope</div>
+    <div class="field">
+      <label class="label">Envelope JSON</label>
+      <textarea class="input" id="envelope-input" placeholder='{"txid": "...", "rawTx": "...", "blockHeader": "...", "proof": [...]}'></textarea>
+    </div>
+    <button class="btn btn-primary" id="verify-btn">Verify Envelope</button>
+    <div class="field" style="margin-top:16px;">
+      <label class="label">Header chain (optional — enables chain-inclusion)</label>
+      <input type="file" class="input" id="headers-file" accept=".bin" style="padding:10px;">
+      <div id="chain-status" class="hint" style="margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <div id="result-section" class="hidden">
+    <div id="result-box" class="result-box">
+      <div class="result-title" id="result-title"></div>
+      <div id="checks"></div>
+      <div class="divider"></div>
+      <div id="details"></div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="generator.html">Generator</a> · <a href="headers-generator.html">Headers</a> · Verifier · <a href="signer.html">Signer</a> · <a href="explorer.html">Explorer</a> · <a href="chain.html">Chain</a> · <a href="tests.html">Tests</a> · <a href="tests-mainnet.html">Mainnet</a>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    // Merkle-root field = bytes 36..68 of the 80-byte header, stored in natural
+    // (internal) byte order. Reverse to display order so it can be compared to
+    // BUMP.merkleRoot()'s output. Extracted from the raw header hex directly so
+    // it does not depend on parseHeader()'s internal byte-order convention.
+    function headerMerkleRoot(headerHex) {
+      var field = headerHex.slice(72, 136);
+      return field.match(/../g).reverse().join('').toLowerCase();
+    }
+
+    let chainHashIndex = null, headerChain = null, chainLoadFailed = false;
+
+    document.getElementById('verify-btn').addEventListener('click', function() {
+      const input = document.getElementById('envelope-input').value.trim();
+      const resultSection = document.getElementById('result-section');
+      const resultBox = document.getElementById('result-box');
+      const resultTitle = document.getElementById('result-title');
+      const checksDiv = document.getElementById('checks');
+      const detailsDiv = document.getElementById('details');
+
+      resultSection.classList.add('hidden');
+
+      let envelope;
+      try {
+        envelope = JSON.parse(input);
+        if (Array.isArray(envelope)) envelope = envelope[0];
+      } catch (e) {
+        showResult(false, 'Invalid JSON', [], []);
+        return;
+      }
+
+      const checks = [];
+      const details = [];
+      let allPassed = true;
+
+      // Check required fields
+      if (!envelope.txid) {
+        checks.push({ pass: false, text: 'Missing txid' });
+        allPassed = false;
+      } else {
+        checks.push({ pass: true, text: 'TXID present' });
+        details.push({ label: 'TXID', value: envelope.txid });
+      }
+
+      if (!envelope.rawTx) {
+        checks.push({ pass: false, text: 'Missing rawTx' });
+        allPassed = false;
+      } else {
+        checks.push({ pass: true, text: 'Raw transaction present' });
+      }
+
+      // Verify txid matches rawTx
+      if (envelope.txid && envelope.rawTx) {
+        try {
+          const computed = reverseHex(bytesToHex(hash256(envelope.rawTx)));
+          if (computed.toLowerCase() === envelope.txid.toLowerCase()) {
+            checks.push({ pass: true, text: 'TXID matches rawTx hash' });
+          } else {
+            checks.push({ pass: false, text: 'TXID does not match rawTx' });
+            allPassed = false;
+          }
+        } catch (e) {
+          checks.push({ pass: false, text: 'Failed to hash rawTx: ' + e.message });
+          allPassed = false;
+        }
+      }
+
+      // Value
+      const satoshis = envelope.satoshis || Math.round((envelope.value || 0) * 1e8);
+      if (satoshis > 0) {
+        details.push({ label: 'Value', value: (satoshis / 1e8).toFixed(8) + ' BSV' });
+      }
+
+      details.push({ label: 'Vout', value: (envelope.vout || 0).toString() });
+
+      // Block header verification
+      if (envelope.blockHeader) {
+        try {
+          if (envelope.blockHeader.length !== 160) {
+            checks.push({ pass: false, text: 'Block header not 80 bytes' });
+            allPassed = false;
+          } else {
+            const header = parseHeader(envelope.blockHeader);
+            details.push({ label: 'Block Time', value: new Date(header.timestamp * 1000).toISOString() });
+            
+            // Verify PoW
+            if (verifyPoW(envelope.blockHeader)) {
+              checks.push({ pass: true, text: 'Proof-of-Work valid' });
+
+              const blockHash = hashHeader(envelope.blockHeader);
+              details.push({ label: 'Block Hash', value: blockHash.slice(0, 16) + '...' });
+
+              // Difficulty floor gate (audit item 3). Previously the verifier
+              // never invoked the floor, so a difficulty-1 forged header passed
+              // on PoW-in-isolation alone. Match the signer: floor failure fails
+              // the verdict.
+              const diff = validateHeaderDifficulty(envelope.blockHeader);
+              if (diff.valid) {
+                checks.push({ pass: true, text: 'Difficulty floor met' });
+              } else {
+                checks.push({ pass: false, text: 'Below difficulty floor: ' + diff.reason });
+                allPassed = false;
+              }
+            } else {
+              checks.push({ pass: false, text: 'Invalid Proof-of-Work' });
+              allPassed = false;
+            }
+          }
+        } catch (e) {
+          checks.push({ pass: false, text: 'Header parse error: ' + e.message });
+          allPassed = false;
+        }
+      } else {
+        checks.push({ pass: null, text: 'No block header (unconfirmed?)' });
+      }
+
+      // Merkle proof verification.
+      // Supports three proof formats, all using the same hybrid check: compute the
+      // Merkle root from the proof, then confirm it equals the root in the embedded,
+      // PoW-verified block header (headerMerkleRoot). Priority: BUMP > BEEF > legacy.
+      //   envelope.bump        — BRC-74 BUMP hex
+      //   envelope.beef / .atomicBeef — BRC-62 / BRC-95 hex
+      //   envelope.proof       — legacy single-branch proof array (unchanged)
+      const hasNewProof = envelope.bump || envelope.beef || envelope.atomicBeef;
+      if (envelope.blockHeader && envelope.txid && (hasNewProof || envelope.proof)) {
+        try {
+          const txid = envelope.txid.toLowerCase();
+          let computedRoot = null, proofKind = null;
+
+          if (envelope.bump) {
+            proofKind = 'BUMP';
+            const bump = BUMP.fromHex(envelope.bump);
+            if (!bump.path[0].some(function (l) { return l.hash === txid; })) {
+              throw new Error('txid not present in BUMP');
+            }
+            computedRoot = BUMP.merkleRoot(bump, txid);
+          } else if (envelope.beef || envelope.atomicBeef) {
+            proofKind = envelope.atomicBeef ? 'Atomic BEEF' : 'BEEF';
+            const parsed = BEEF.parse(envelope.atomicBeef || envelope.beef);
+            const tx = parsed.transactions.filter(function (t) { return t.txid === txid; })[0];
+            if (!tx) throw new Error('BEEF does not contain txid');
+            if (tx.bumpIndex === null || tx.bumpIndex === undefined) {
+              throw new Error('tx has no Merkle path in BEEF (unconfirmed?)');
+            }
+            computedRoot = BUMP.merkleRoot(parsed.bumps[tx.bumpIndex], txid);
+          }
+
+          if (computedRoot !== null) {
+            // BUMP / BEEF path. Security comes from this root matching the
+            // PoW-backed header root, so no separate CVE-2012-2459 check is
+            // needed: a forged/duplicated tree cannot reproduce the real root.
+            details.push({ label: 'Proof Format', value: proofKind });
+            if (computedRoot === headerMerkleRoot(envelope.blockHeader)) {
+              checks.push({ pass: true, text: proofKind + ' Merkle root matches block header' });
+            } else {
+              checks.push({ pass: false, text: proofKind + ' Merkle root does not match header' });
+              allPassed = false;
+            }
+          } else {
+            // Legacy proof array — unchanged behaviour.
+            if (!checkMerkleProofSafe(envelope.proof)) {
+              checks.push({ pass: false, text: 'Merkle proof has duplicate hashes (CVE-2012-2459)' });
+              allPassed = false;
+            } else {
+              const header = parseHeader(envelope.blockHeader);
+              const valid = verifyMerkleProof(envelope.txid, envelope.proof, header.merkleRoot);
+              if (valid) {
+                checks.push({ pass: true, text: 'Merkle proof valid' });
+              } else {
+                checks.push({ pass: false, text: 'Merkle proof invalid' });
+                allPassed = false;
+              }
+            }
+          }
+        } catch (e) {
+          checks.push({ pass: false, text: 'Merkle proof error: ' + e.message });
+          allPassed = false;
+        }
+      } else if (envelope.blockHeader) {
+        checks.push({ pass: null, text: 'No Merkle proof' });
+      }
+
+      // Chain inclusion (optional) via the shared headers.js helper.
+      let inclusionProven = false;
+      if (envelope.blockHeader && envelope.blockHeader.length === 160) {
+        if (chainLoadFailed) {
+          // Audit item 4: a supplied chain failed to load. Fail closed rather than
+          // reverting to the softer "unknown" (isolation) state.
+          checks.push({ pass: false, text: 'Header chain was supplied but failed to verify — fix or remove it' });
+          allPassed = false;
+        } else {
+          try {
+            const ci = chainInclusion(chainHashIndex, hashHeader(envelope.blockHeader));
+            if (ci.status === 'verified') {
+              checks.push({ pass: true, text: 'Block in header chain (height ' + ci.height + ')' });
+              inclusionProven = true;
+            } else if (ci.status === 'not_in_chain') {
+              checks.push({ pass: false, text: 'Block NOT in loaded header chain' });
+              allPassed = false;
+            } else {
+              checks.push({ pass: null, text: 'Chain inclusion NOT proven — no header chain loaded (PoW verified in isolation only)' });
+            }
+          } catch (e) {
+            checks.push({ pass: false, text: 'Chain check error: ' + e.message });
+            allPassed = false;
+          }
+        }
+      }
+
+      // Confirmations
+      if (typeof envelope.confirmations === 'number') {
+        details.push({ label: 'Confirmations', value: envelope.confirmations.toString() });
+        if (envelope.confirmations < 6) {
+          checks.push({ pass: null, text: 'Low confirmations (' + envelope.confirmations + ')' });
+        }
+      }
+
+      // Audit item 3: reserve the unqualified "VALID" for chain-verified proofs.
+      // In isolation mode the checks can all pass yet inclusion is NOT established,
+      // so say so in the title rather than showing the same green verdict.
+      let title;
+      if (!allPassed) title = 'VERIFICATION FAILED';
+      else if (inclusionProven) title = 'VALID — INCLUSION PROVEN';
+      else title = 'VALID PROOF — INCLUSION NOT PROVEN (PoW in isolation)';
+      showResult(allPassed, inclusionProven, title, checks, details);
+    });
+
+    document.getElementById('headers-file').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      const status = document.getElementById('chain-status');
+      if (!file) { chainLoadFailed = false; chainHashIndex = null; headerChain = null; status.textContent = ''; return; }
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = verifyHeaderChain(bytes, CHECKPOINT);
+        headerChain = result;
+        chainHashIndex = result.hashIndex;
+        chainLoadFailed = false;
+        status.textContent = '✓ Chain verified — ' + result.headers.length.toLocaleString() +
+          ' headers, tip ' + result.tipHeight.toLocaleString() +
+          (result.checkpointVerified ? ' (checkpoint OK)' : ' (no checkpoint match)');
+        status.style.color = 'var(--success)';
+      } catch (err) {
+        headerChain = null; chainHashIndex = null;
+        // Audit item 4: a chain was supplied and failed to verify. Do NOT silently
+        // fall back to isolation ("unknown") on the next verify — record the failure
+        // so the verdict fails closed until the user clears or reloads the file.
+        chainLoadFailed = true;
+        status.textContent = '✗ ' + err.message + ' — chain rejected; verification will fail closed until a valid chain is loaded or the file is removed.';
+        status.style.color = 'var(--danger)';
+      }
+    });
+
+    function showResult(valid, inclusionProven, title, checks, details) {
+      const resultSection = document.getElementById('result-section');
+      const resultBox = document.getElementById('result-box');
+      const resultTitle = document.getElementById('result-title');
+      const checksDiv = document.getElementById('checks');
+      const detailsDiv = document.getElementById('details');
+
+      // Three visual states: invalid (red), valid-but-isolation (amber caution),
+      // valid-and-chain-verified (green). Amber avoids implying confirmed inclusion.
+      const cls = !valid ? 'invalid' : (inclusionProven ? 'valid' : 'caution');
+      const icon = !valid ? '✗ ' : (inclusionProven ? '✓ ' : '⚠ ');
+      resultBox.className = 'result-box ' + cls;
+      resultTitle.textContent = icon + title;
+
+      let checksHtml = '';
+      for (const c of checks) {
+        const icon = c.pass === true ? '✓' : (c.pass === false ? '✗' : '!');
+        const cls = c.pass === true ? 'check-pass' : (c.pass === false ? 'check-fail' : 'check-warn');
+        checksHtml += '<div class="check-item ' + cls + '">' + icon + ' ' + c.text + '</div>';
+      }
+      checksDiv.innerHTML = checksHtml;
+
+      let detailsHtml = '';
+      for (const d of details) {
+        detailsHtml += '<div class="info-row"><span class="info-label">' + d.label + '</span><span class="info-value">' + d.value + '</span></div>';
+      }
+      detailsDiv.innerHTML = detailsHtml;
+
+      resultSection.classList.remove('hidden');
+    }
+
+  })();
+  </script>
+</body>
+</html>
