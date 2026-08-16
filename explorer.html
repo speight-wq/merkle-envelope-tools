@@ -567,6 +567,23 @@
     }
     
     function analyzeLikelyCause(r) {
+      // Non-Merkle failures first: the Merkle proof may be perfectly valid and the
+      // failure lies elsewhere. Returning a "corrupted branch" cause for these (as the
+      // old code did unconditionally) is misleading — e.g. a valid proof whose block is
+      // simply not in the loaded chain would read as if the proof were forged.
+      const ci = r.assurance.chainInclusion;
+      if (r.assurance.chainLoadFailed) {
+        return 'Loaded header chain failed to verify — load a valid checkpoint-anchored chain or clear the file.';
+      }
+      if (ci && !ci.verified && ci.status === 'not_in_chain') {
+        return 'The proof is internally valid, but this block\'s header is not in the loaded chain. ' +
+               'The transaction may be in a block outside the loaded range (e.g. before the checkpoint, ' +
+               'or beyond the tip), or the wrong chain was loaded.';
+      }
+      if (!r.header.powValid) return 'Block header proof-of-work is invalid (forged or corrupted header).';
+      if (!r.assurance.difficultyFloor.valid) return 'Block difficulty is below the checkpoint floor (possible forged low-difficulty header).';
+      if (!r.structureValidation.valid) return 'Proof structure anomaly (malformed proof node).';
+      // Merkle-path failures (root mismatch):
       const proof = r.input.proof;
       if (proof.length === 0) return 'Single-tx block with incorrect TXID or header';
       const txid = r.txid.display;
@@ -621,7 +638,9 @@
       html += '<span class="label">Replay ID:</span> ' + r.hashes.replayId + '</div>';
       if (!r.result.valid) {
         html += '<div class="diagnostics"><div class="diagnostics-title">Failure Diagnostics</div>';
-        html += '<div class="diagnostics-row"><span class="label">Failed At:</span> Step ' + r.result.failedAt + '</div>';
+        if (r.result.failedAt !== null) {
+          html += '<div class="diagnostics-row"><span class="label">Failed At:</span> Step ' + r.result.failedAt + '</div>';
+        }
         html += '<div class="diagnostics-row"><span class="label">Reason:</span> ' + r.result.reason + '</div>';
         if (r.result.byteDivergence) {
           const bd = r.result.byteDivergence;
@@ -817,7 +836,7 @@
       
       if (!r.result.valid) {
         t += '-'.repeat(72) + '\nFAILURE DIAGNOSTICS\n' + '-'.repeat(72) + '\n';
-        t += 'Failed At:    Step ' + r.result.failedAt + '\n';
+        if (r.result.failedAt !== null) t += 'Failed At:    Step ' + r.result.failedAt + '\n';
         t += 'Reason:       ' + r.result.reason + '\n';
         t += 'Likely Cause: ' + r.result.likelyCause + '\n';
         if (r.result.byteDivergence) {
@@ -927,6 +946,31 @@
       lastInputHash = null;
     }
     
+    // Browser-pass fix: the verdict is a function of BOTH the envelope AND the loaded
+    // header chain, but the lock key (computeInputHash) covers only the envelope. So a
+    // chain loaded/changed AFTER a verdict was locked left a STALE verdict on screen
+    // (e.g. an amber "PoW in isolation" verdict shown above a freshly "Chain verified"
+    // status, with the same Replay ID — verify() had never re-run). When a verdict is
+    // already rendered and the chain changes, the previous locked computation is void:
+    // unlock and recompute against the new chain so the displayed verdict always matches
+    // the loaded chain (and stays consistent with verifier.html).
+    function recomputeAfterChainChange() {
+      if (report === null) return;              // no verdict yet — chain is used on next Verify
+      const input = document.getElementById('envelope-input').value.trim();
+      unlock();                                 // chain changed => locked computation no longer valid
+      if (!input) {                             // nothing to recompute against — drop the stale verdict
+        document.getElementById('results').classList.add('hidden');
+        document.getElementById('empty-state').classList.remove('hidden');
+        report = null;
+        return;
+      }
+      try {
+        let env = JSON.parse(input);
+        if (Array.isArray(env)) env = env[0];
+        if (env && env.txid) render(verify(env)); // recompute against the new chain (re-locks)
+      } catch (e) { /* malformed input left in box; user can edit and re-verify */ }
+    }
+
     document.getElementById('headers-file').addEventListener('change', async function(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -952,6 +996,7 @@
         status.style.color = 'var(--danger)';
         info.classList.remove('hidden');
       }
+      recomputeAfterChainChange();
     });
 
     document.getElementById('btn-verify').addEventListener('click', () => {
