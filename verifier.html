@@ -360,6 +360,14 @@
       for (const d of details) {
         detailsHtml += '<div class="info-row"><span class="info-label">' + d.label + '</span><span class="info-value">' + d.value + '</span></div>';
       }
+      // Permanent scope boundary — what this verifier does NOT attempt to establish,
+      // shown on every result so a pass is never read as more than it is. Shared list.
+      if (typeof SCOPE_ANTICLAIMS !== 'undefined' && SCOPE_ANTICLAIMS.length) {
+        detailsHtml += '<div class="info-row" style="margin-top:8px;font-weight:600">This verifier does NOT establish</div>';
+        for (const c of SCOPE_ANTICLAIMS) {
+          detailsHtml += '<div class="info-row"><span class="info-label">' + c.label + '</span><span class="info-value">' + c.detail + '</span></div>';
+        }
+      }
       detailsDiv.innerHTML = detailsHtml;
 
       resultSection.classList.remove('hidden');

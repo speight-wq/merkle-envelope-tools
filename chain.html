@@ -743,6 +743,9 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
           oldestBlock: null,
           newestBlock: null
         },
+        // Permanent scope boundary — what chain verification does NOT attempt to
+        // establish, regardless of verdict. Shared source of truth (headers.js).
+        claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []),
         hops: []
       };
       
@@ -978,7 +981,16 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
       html += '<span class="label">Chain Verification Hash:</span>' + (r.chainVerificationHash || '—') + '<br>';
       html += '<span class="label">Protocol Version:</span>' + r.version;
       html += '</div>';
-      
+
+      // Permanent scope boundary — what chain verification does NOT establish.
+      if (r.claimsNotEstablished && r.claimsNotEstablished.length) {
+        html += '<div class="verdict-meta" style="margin-top:8px"><span class="label">This tool does NOT establish:</span><br>';
+        r.claimsNotEstablished.forEach(function (c) {
+          html += '<span class="label">' + c.label + ':</span> ' + c.detail + '<br>';
+        });
+        html += '</div>';
+      }
+
       box.innerHTML = html;
     }
     

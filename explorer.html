@@ -53,6 +53,7 @@
     .verdict.invalid { background: var(--danger-bg); border: 2px solid var(--danger); color: var(--danger); }
     .verdict.caution { background: #fff3bf; border: 2px solid var(--warning); color: var(--warning); }
     .verdict-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .verdict-scope { font-size: 0.72rem; font-weight: normal; color: var(--text-2); line-height: 1.5; margin: 4px 0 8px; }
     .verdict-hashes { font-size: 0.65rem; font-weight: normal; font-family: var(--mono); color: var(--text-2); line-height: 1.8; word-break: break-all; }
     .verdict-hashes .label { color: var(--text-3); display: block; margin-bottom: 2px; }
     @media (min-width: 480px) { .verdict-hashes .label { display: inline-block; min-width: 140px; margin-bottom: 0; } }
@@ -370,6 +371,9 @@
         result: { valid: false, failedAt: null, reason: null, likelyCause: null },
         hashes: { inputFingerprint: null, verificationHash: null, replayId: null, stepCheckpoints: [] },
         structureValidation: null,
+        // Permanent scope boundary: properties this verifier does not attempt to establish,
+        // regardless of verdict (machine-readable negative space). Shared source of truth.
+        claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []),
         timing: { totalMs: 0, steps: [] }
       };
       
@@ -630,8 +634,15 @@
       box.className = 'verdict ' + (!r.result.valid ? 'invalid' : (isolationOnly ? 'caution' : 'valid'));
       const vIcon = !r.result.valid ? '✗' : (isolationOnly ? '⚠' : '✓');
       const vText = !r.result.valid ? 'VERIFICATION FAILED'
-                  : (isolationOnly ? 'PASSED — PoW IN ISOLATION (inclusion NOT proven)' : 'VERIFICATION PASSED — INCLUSION PROVEN');
+                  : (isolationOnly ? 'PASSED — PoW IN ISOLATION (inclusion NOT proven)' : 'VERIFICATION PASSED — TXID INCLUSION PROVEN');
       html = '<div class="verdict-title"><span>' + vIcon + '</span> ' + vText + '</div>';
+      // Scope clarification (UI only): explorer verifies that the TXID is committed to the
+      // header's PoW-verified Merkle root; it does NOT bind the supplied rawTx bytes to that
+      // TXID (no rawTx->txid check). So a pass establishes TXID inclusion, not that any
+      // particular transaction corresponds to the TXID. Shown on any successful verdict.
+      if (r.result.valid) {
+        html += '<div class="verdict-scope">TXID inclusion established. This tool does NOT bind the supplied raw transaction bytes to this TXID — it does not establish that any particular transaction corresponds to it.</div>';
+      }
       html += '<div class="verdict-hashes">';
       html += '<span class="label">Input Fingerprint:</span> ' + r.hashes.inputFingerprint + '<br>';
       html += '<span class="label">Verification Hash:</span> ' + r.hashes.verificationHash + '<br>';
@@ -650,6 +661,15 @@
         }
         html += '<div class="diagnostics-cause"><div class="diagnostics-cause-title">LIKELY CAUSE</div>';
         html += '<div class="diagnostics-cause-text">' + r.result.likelyCause + '</div></div></div>';
+      }
+      // Permanent scope boundary — what this tool does NOT attempt to establish, shown on
+      // every verdict so a pass is never read as more than it is. Not evidence-dependent.
+      if (r.claimsNotEstablished && r.claimsNotEstablished.length) {
+        html += '<div class="diagnostics"><div class="diagnostics-title">This verifier does NOT establish</div>';
+        r.claimsNotEstablished.forEach(function (c) {
+          html += '<div class="diagnostics-row"><span class="label">' + c.label + ':</span> ' + c.detail + '</div>';
+        });
+        html += '</div>';
       }
       box.innerHTML = html;
     }
@@ -832,6 +852,14 @@
         t += '\nScope: this audit proves the proof connects the TXID to THIS header and that\n';
         t += 'the header meets its own proof-of-work. It does NOT by itself prove the header\n';
         t += 'is on the most-work honest chain unless chain inclusion is verified.\n\n';
+      }
+
+      if (r.claimsNotEstablished && r.claimsNotEstablished.length) {
+        t += '-'.repeat(72) + '\nNOT ESTABLISHED BY THIS VERIFIER (scope boundary)\n' + '-'.repeat(72) + '\n';
+        r.claimsNotEstablished.forEach(function (c) {
+          t += '[' + c.id + '] ' + c.label + ' (' + c.scope + '):\n  ' + c.detail + '\n';
+        });
+        t += '\n';
       }
       
       if (!r.result.valid) {
