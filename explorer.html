@@ -327,11 +327,35 @@
     }
     // length-prefixed field framing: "<len>:<bytes>" so no two field boundaries collide
     function frame(s) { s = (s == null ? '' : String(s)); return s.length + ':' + s; }
+    // presence-framed optional field: absent ('0') must never collide with a present-but-empty
+    // value ('1' + frame('')). Fixes blocker B4's absent≠empty requirement.
+    function frameOpt(name, val) {
+      return frame(name) + (val === undefined || val === null ? '0' : ('1' + frame(String(val))));
+    }
+    // Evidence digest (spec §K / blocker B4). Commits to EVERY field a verdict path reads —
+    // including `bump`/`beef`/`atomicBeef`/`rawTx` (the verifier prefers bump over proof, so
+    // omitting it let two envelopes with identical proof + contradictory bump share a Replay
+    // ID) — plus the checkpoint identity, floor tolerance, and spec version so a digest under
+    // one anchor/policy/version cannot collide with another. Advisory fields (vout, satoshis,
+    // self-declared blockHash/blockHeight, confirmations) are excluded: no verdict path reads
+    // them. This is an EVIDENCE-identity digest, not a verdict-agreement claim.
     function canonicalInput(env) {
       var proofCanon = canonicalProof(env.proof || []);
       var parts = proofCanon.map(function (p) { return frame(p.hash) + frame(p.pos); }).join('');
-      return frame('txid') + frame(lc(env.txid)) +
+      var SPEC_VERSION = '1';
+      var TOLERANCE = '8';
+      var cp = (typeof CHECKPOINT !== 'undefined')
+        ? (CHECKPOINT.height + '/' + lc(CHECKPOINT.hash) + '/' + ((CHECKPOINT.nBits >>> 0).toString(16)))
+        : '';
+      return frame('v') + frame(SPEC_VERSION) +
+             frame('checkpoint') + frame(cp) +
+             frame('tolerance') + frame(TOLERANCE) +
+             frame('txid') + frame(lc(env.txid)) +
              frame('header') + frame(lc(env.blockHeader)) +
+             frameOpt('rawTx', env.rawTx == null ? undefined : lc(env.rawTx)) +
+             frameOpt('bump', env.bump == null ? undefined : lc(env.bump)) +
+             frameOpt('beef', env.beef == null ? undefined : lc(env.beef)) +
+             frameOpt('atomicBeef', env.atomicBeef == null ? undefined : lc(env.atomicBeef)) +
              frame('proof') + frame(proofCanon.length + '') + parts;
     }
     
@@ -368,14 +392,20 @@
         txid: { display: envelope.txid.toLowerCase(), internal: reverseHex(envelope.txid.toLowerCase()) },
         header: null, steps: [],
         metadata: { proofDepth: 0, totalBytesProcessed: 0 },
-        result: { valid: false, failedAt: null, reason: null, likelyCause: null },
+        result: { valid: false, outcome: null, failedAt: null, reason: null, likelyCause: null },
         hashes: { inputFingerprint: null, verificationHash: null, replayId: null, stepCheckpoints: [] },
         structureValidation: null,
+        evaluationError: false,               // B3: set true if an internal dependency throws
+        advisories: [],                        // B5: non-outcome warnings (e.g. low confirmations)
         // Permanent scope boundary: properties this verifier does not attempt to establish,
         // regardless of verdict (machine-readable negative space). Shared source of truth.
         claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []),
         timing: { totalMs: 0, steps: [] }
       };
+      // B5 advisory (does not affect the outcome): low confirmations, if self-declared.
+      if (typeof envelope.confirmations === 'number' && envelope.confirmations < 6) {
+        r.advisories.push({ id: 'low-confirmations', detail: 'Low confirmations (' + envelope.confirmations + ') — advisory only; does not affect the verification outcome.' });
+      }
       
       r.structureValidation = validateProofStructure(envelope);
       // Canonicalized input (audit item 7) — stable across hex casing, JSON key order,
@@ -388,6 +418,7 @@
       if (!envelope.blockHeader || envelope.blockHeader.length !== 160) {
         r.result.reason = 'Invalid header length';
         r.result.likelyCause = 'Malformed block header';
+        r.result.outcome = OUTCOME.MALFORMED;
         finalizeHashes(r);
         r.timing.totalMs = performance.now() - startTime;
         return r;
@@ -408,9 +439,13 @@
         const bitsVal = parseInt(bits, 16);
         // Authoritative target/PoW from shared headers.js — one audited implementation,
         // no parallel copy of consensus math to drift out of sync.
-        const target = targetFromNBits(bitsVal);
+        // Consensus/policy dependencies routed through evalDep: an internal throw here
+        // (undefined/broken dependency) is tagged EvaluationError -> INDETERMINATE, not
+        // misread as a malformed header. Hex-decoding above stays outside this boundary,
+        // so a bad-hex header still classifies as MALFORMED.
+        const target = evalDep(function () { return targetFromNBits(bitsVal); });
         const targetHex = target.toString(16).padStart(64, '0');
-        const powValid = verifyPoW(hdr);
+        const powValid = evalDep(function () { return verifyPoW(hdr); });
         
         r.header = {
           raw: hdr, version: parseInt(version, 16), versionHex: version, prevBlock, merkleRoot: merkleRoot.toLowerCase(),
@@ -422,14 +457,23 @@
         if (!powValid) {
           r.result.reason = 'PoW validation failed: hash exceeds target';
           r.result.likelyCause = 'Corrupted header';
+          r.result.outcome = OUTCOME.FAILED;
           finalizeHashes(r);
           r.timing.totalMs = performance.now() - startTime;
           r.timing.steps = stepTimings;
           return r;
         }
       } catch (e) {
-        r.result.reason = 'Header parse error: ' + e.message;
-        r.result.likelyCause = 'Malformed header';
+        // B3: a ReferenceError here means an internal dependency is missing/broken — the tool
+        // failed to evaluate, which is INDETERMINATE, NOT a claim that the header is invalid.
+        // Any other throw in header parsing is malformed user input.
+        // Semantic boundary (not JS subclass): a tagged EvaluationError means an internal
+        // dependency failed -> INDETERMINATE. Any other throw in header decoding is malformed
+        // input -> MALFORMED.
+        r.evaluationError = isEvaluationError(e);
+        r.result.reason = (r.evaluationError ? 'Evaluation error: ' : 'Header parse error: ') + e.message;
+        r.result.likelyCause = r.evaluationError ? 'Internal dependency failure (not an evidence claim)' : 'Malformed header';
+        r.result.outcome = r.evaluationError ? OUTCOME.INDETERMINATE : OUTCOME.MALFORMED;
         finalizeHashes(r);
         r.timing.totalMs = performance.now() - startTime;
         return r;
@@ -506,13 +550,27 @@
       // proof could compute to the real root and be reported VALID despite the structure
       // anomaly. Structure + proof-safety now gate the verdict.
       const proofSafe = checkMerkleProofSafe(proof);
-      r.assurance = buildAssurance(hdr, r);
-      const ci = r.assurance.chainInclusion;
-      // Audit item 4: if a chain was supplied but failed to load, do not treat the
-      // resulting null index as benign "unknown" — fail closed.
-      const chainOk = !chainLoadFailed && ci.status !== 'not_in_chain'; // unknown/verified pass; not_in_chain or load-failure fails
-      r.assurance.chainLoadFailed = chainLoadFailed;
-      r.assurance.inclusionProven = (ci.status === 'verified');
+      let ci, chainOk;
+      try {
+        r.assurance = buildAssurance(hdr, r);   // calls validateHeaderDifficulty + chainInclusion
+        ci = r.assurance.chainInclusion;
+        // Audit item 4: if a chain was supplied but failed to load, do not treat the
+        // resulting null index as benign "unknown" — fail closed.
+        chainOk = !chainLoadFailed && ci.status !== 'not_in_chain'; // unknown/verified pass; not_in_chain or load-failure fails
+        r.assurance.chainLoadFailed = chainLoadFailed;
+        r.assurance.inclusionProven = (ci.status === 'verified');
+      } catch (e) {
+        // B3: a dependency (validateHeaderDifficulty / chainInclusion) threw — the tool could
+        // not evaluate. INDETERMINATE, never a claim that the evidence is invalid.
+        r.evaluationError = true;
+        r.result.reason = 'Evaluation error: ' + e.message;
+        r.result.likelyCause = 'Internal dependency failure (not an evidence claim)';
+        r.result.outcome = OUTCOME.INDETERMINATE;
+        finalizeHashes(r);
+        r.timing.totalMs = performance.now() - startTime;
+        r.timing.steps = stepTimings;
+        return r;
+      }
       r.checks = [
         { name: 'Structure', pass: r.structureValidation.valid, level: 'fail' },
         { name: 'Proof safety (CVE-2012-2459)', pass: proofSafe, level: 'fail' },
@@ -528,6 +586,22 @@
       // the other consumers — a cross-consumer inconsistency and a residual over-assurance.
       r.result.valid = r.structureValidation.valid && proofSafe && r.header.powValid &&
                        r.assurance.difficultyFloor.valid && match && chainOk;
+      // B1/B2: canonical semantic outcome — a LABEL derived from the signals above. It does
+      // NOT change r.result.valid (the accept/reject decision) or any cryptographic result.
+      // B2: valid crypto rejected ONLY by the difficulty floor is POLICY-REJECTED, not FAILED.
+      {
+        const cryptoOk = r.structureValidation.valid && proofSafe && r.header.powValid && match;
+        r.result.outcome = classifyOutcome({
+          evaluationError: r.evaluationError,
+          malformed: !r.structureValidation.valid,
+          failed: (r.structureValidation.valid && (!proofSafe || !r.header.powValid || !match))
+                  || ci.status === 'not_in_chain' || chainLoadFailed,
+          policyRejected: cryptoOk && !r.assurance.difficultyFloor.valid,
+          cryptoEstablished: cryptoOk && r.assurance.difficultyFloor.valid,
+          chainLoaded: !!chainHashIndex,
+          inclusionVerified: ci.status === 'verified'
+        });
+      }
       if (!r.result.valid) {
         r.result.failedAt = match ? null : (proof.length + 1);
         r.result.reason = !match ? 'Merkle root mismatch'
@@ -547,16 +621,17 @@
     }
     
     function buildAssurance(hdr, r) {
-      let difficultyFloor;
-      try {
-        const f = validateHeaderDifficulty(hdr); // headers.js: floor + timestamp sanity
-        difficultyFloor = { valid: !!f.valid, reason: f.reason || 'meets difficulty floor' };
-      } catch (e) {
-        difficultyFloor = { valid: false, reason: 'floor check error: ' + e.message };
-      }
+      // validateHeaderDifficulty is a policy DEPENDENCY. A throw here is an evaluation failure
+      // (INDETERMINATE), NOT a policy rejection — so route it through evalDep and let it
+      // propagate to the caller's dependency boundary. Previously an internal try/catch
+      // degraded any throw to { valid:false }, which misreported an evaluation failure (e.g.
+      // an undefined dependency) as a difficulty-floor policy rejection — the exact inversion
+      // the outcome taxonomy exists to prevent.
+      const f = evalDep(function () { return validateHeaderDifficulty(hdr); }); // headers.js: floor + timestamp sanity
+      const difficultyFloor = { valid: !!f.valid, reason: f.reason || 'meets difficulty floor' };
       // Chain inclusion via the shared headers.js helper (single tested implementation).
       const bh = (r.header && r.header.blockHash) ? r.header.blockHash : hashHeader(hdr);
-      return { difficultyFloor: difficultyFloor, chainInclusion: chainInclusion(chainHashIndex, bh) };
+      return { difficultyFloor: difficultyFloor, chainInclusion: evalDep(function () { return chainInclusion(chainHashIndex, bh); }) };
     }
 
     function finalizeHashes(r) {
@@ -840,8 +915,8 @@
           const mark = c.pass ? '✓' : (c.level === 'fail' ? '✗' : '!');
           t += '  [' + mark + '] ' + c.name + (c.detail ? ' — ' + c.detail : '') + '\n';
         }
-        t += '\nVerdict gates on: structure, proof-safety, proof-of-work, root match.\n';
-        t += 'Difficulty floor is advisory; chain-inclusion is informational.\n\n';
+        t += '\nVerdict gates on: structure, proof-safety, proof-of-work, difficulty floor,\n';
+        t += 'root match, and chain inclusion (when a header chain is loaded).\n\n';
       }
 
       if (r.assurance) {

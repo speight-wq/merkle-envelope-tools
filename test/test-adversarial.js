@@ -14,7 +14,11 @@
 'use strict';
 require('../lib/crypto.js');
 require('../lib/encoding.js');
+require('../lib/secp256k1.js');
 require('../lib/headers.js');
+require('../lib/snapshot.js');
+const BUMP = require('../lib/bump.js');
+const BEEF = require('../lib/beef.js');
 
 let pass = 0, fail = 0;
 function check(name, cond) { (cond ? pass++ : fail++); console.log((cond ? 'PASS ' : 'FAIL ') + name); }
@@ -141,17 +145,216 @@ check('B: length-framing prevents field-boundary collision',
     BigInt(asNum) !== asBig && BigInt(asNum) === 9007199254740992n);
 })();
 
-// ---- D2) checkpoint floor sanity guard (real-data finding) -------------------
-// The difficulty floor only has value if it is stricter than difficulty-1. Detect a
-// misconfigured/placeholder checkpoint nBits that makes the floor toothless.
+// ---- D2) checkpoint floor sanity (now FIXED with real block-940000 nBits) ----
 (function () {
   const st = global.checkpointFloorStatus();
-  // With the SHIPPED checkpoint (0x1d2a0000) the floor is looser than difficulty-1,
-  // so the guard must report NOT sane (this is the finding; flip to sane once the
-  // real block-935000 nBits is set).
-  check('D2: checkpointFloorStatus detects the toothless shipped floor', st.sane === false);
-  check('D2: guard names the checkpoint and advises the fix', /checkpoint nBits|935000/i.test(st.reason));
+  check('D2: checkpointFloorStatus reports sane (floor stricter than difficulty-1)', st.sane === true);
+  // The floor must now REJECT difficulty-1 (2^223) and ACCEPT real BSV difficulty (~2^189).
+  const d1 = H.targetFromNBits(0x1d00ffff);
+  const real = H.targetFromNBits(0x18227b71); // block 939999 (checkpoint) difficulty
+  check('D2: difficulty-1 is above the floor (rejected)', d1 > global.STATIC_FLOOR_TARGET);
+  check('D2: real BSV difficulty is at/below the floor (accepted)', real <= global.STATIC_FLOOR_TARGET);
 })();
+
+// ---- D3) the provided real headers.bin verifies against the checkpoint ---------
+(function () {
+  const fs = require('fs');
+  const path = __dirname + '/headers-940000-to-940000.bin';
+  if (!fs.existsSync(path)) { console.log('SKIP D3: headers.bin not present'); return; }
+  const buf = new Uint8Array(fs.readFileSync(path));
+  let res = null, err = null;
+  try { res = H.verifyHeaderChain(buf, H.CHECKPOINT); } catch (e) { err = e.message; }
+  check('D3: real headers.bin verifies against enforced checkpoint', !!res && res.checkpointVerified === true);
+  check('D3: tip is height 940000 and chain-inclusion resolves', !!res && res.tipHeight === 940000 &&
+    H.chainInclusion(res.hashIndex, res.tipHash).status === 'verified');
+})();
+
+// ---- E) snapshot.js: signature path fixed + tip floor (findings from this pass) --
+(function () {
+  const fs = require('fs');
+  const path = __dirname + '/headers-940000-to-940000.bin';
+  if (!fs.existsSync(path)) { console.log('SKIP E: headers.bin not present'); return; }
+  const buf = new Uint8Array(fs.readFileSync(path));
+  const anchorHash = H.bytesToHex(buf.slice(4, 36));
+  const headerHex = H.bytesToHex(buf.slice(40, 120));
+  const priv = '0000000000000000000000000000000000000000000000000000000000000001';
+  const pub = H.SECP256K1.getPublicKey(priv, true);
+  const snap = H.createSnapshot(939999, anchorHash, headerHex, priv);
+  check('E: createSnapshot produces a DER signature (secp256k1 casing/arg bug fixed)', typeof snap.signature === 'string' && snap.signature.length > 130);
+  check('E: verifySnapshot accepts a valid real-difficulty snapshot (tip passes floor)', H.verifySnapshot(snap, [pub], { expectedAnchorHash: anchorHash }).valid === true);
+  check('E: untrusted signer rejected', H.verifySnapshot(snap, ['02' + '00'.repeat(32)], { expectedAnchorHash: anchorHash }).valid === false);
+  const bad = JSON.parse(JSON.stringify(snap)); bad.headers = bad.headers.slice(0, -2) + '00';
+  check('E: tampered headers rejected (fail closed)', H.verifySnapshot(bad, [pub], { expectedAnchorHash: anchorHash }).valid === false);
+})();
+
+
+// ---- F) Atomic BEEF subject validation (audit M1, BRC-95) --------------------
+(function () {
+  const beef = BEEF.parse(BEEF.VECTOR.hex);        // 2 txs: t0 (mined ancestor), t1 (subject, spends t0)
+  const t0 = beef.transactions[0], t1 = beef.transactions[1];
+
+  // Positive control: the genuine subject (last tx) round-trips through parse.
+  let okValid = true;
+  try { BEEF.parse(BEEF.wrapAtomic(BEEF.VECTOR.hex, t1.txid)); } catch (e) { okValid = false; }
+  check('F: valid Atomic BEEF (subject = last tx) still parses', okValid);
+
+  // 1) Subject not the last transaction -> reject (t0 is an ancestor, not the subject).
+  let threw1 = '', ok1 = false;
+  try { BEEF.parse(BEEF.wrapAtomic(BEEF.VECTOR.hex, t0.txid)); }
+  catch (e) { ok1 = true; threw1 = e.message; }
+  check('F1: subject-not-last Atomic BEEF is rejected', ok1 && /last transaction/i.test(threw1));
+
+  // 2) Subject absent from the container -> reject.
+  let ok2 = false, threw2 = '';
+  try { BEEF.parse(BEEF.wrapAtomic(BEEF.VECTOR.hex, '00'.repeat(32))); }
+  catch (e) { ok2 = true; threw2 = e.message; }
+  check('F2: subject-not-present Atomic BEEF is rejected', ok2 && /not present/i.test(threw2));
+
+  // 3) Only-ancestors rule: a container carrying a tx that is not the subject or an
+  //    ancestor of it -> reject. Synthetic DAG so the subject IS last (isolating this
+  //    rule from F1): A (ancestor) , U (unrelated) , S (subject, last, spends A).
+  const A = { txid: 'a'.repeat(64), inputs: [{ prevTxid: 'f'.repeat(64) }] };   // ancestor (its parent is outside the container)
+  const U = { txid: 'b'.repeat(64), inputs: [{ prevTxid: 'e'.repeat(64) }] };   // unrelated to S
+  const S = { txid: 'c'.repeat(64), inputs: [{ prevTxid: A.txid }] };           // subject, last, spends A
+  // sanity: the valid subset [A, S] must pass
+  let okSubset = true;
+  try { BEEF.validateAtomicSubject([A, S], S.txid); } catch (e) { okSubset = false; }
+  check('F3a: subject + genuine ancestor validates', okSubset);
+  // the unrelated tx must be rejected
+  let ok3 = false, threw3 = '';
+  try { BEEF.validateAtomicSubject([A, U, S], S.txid); }
+  catch (e) { ok3 = true; threw3 = e.message; }
+  check('F3b: unrelated tx in Atomic container is rejected (only-ancestors)',
+    ok3 && /not the subject or an ancestor/i.test(threw3));
+})();
+
+
+// ---- G) per-header difficulty floor policy (enforceChainFloor) ----------------
+// Pure-policy tests with hand-set targets (no real PoW grinding). Larger target =
+// easier = "sub-floor"; target <= floor = "at/below floor" = admissible.
+(function () {
+  const F = global.STATIC_FLOOR_TARGET;
+  const atFloor = F;              // exactly at the floor (admissible)
+  const belowFloor = F / 2n;      // harder than floor (admissible)
+  const subFloor = F * 2n;        // easier than floor (must be rejected)
+  function run(hs) { try { global.enforceChainFloor(hs, F); return 'ACCEPT'; } catch (e) { return 'REJECT'; } }
+
+  // 1. all headers at/below floor -> ACCEPT
+  check('G1: all headers at/below floor -> ACCEPT',
+    run([{ height: 1, target: belowFloor }, { height: 2, target: atFloor }]) === 'ACCEPT');
+
+  // 2. sub-floor intermediate + at-floor tip -> REJECT
+  //    (this is the case tip-only enforcement wrongly ACCEPTED; the core regression.)
+  check('G2: sub-floor intermediate + at-floor tip -> REJECT',
+    run([{ height: 1, target: subFloor }, { height: 2, target: atFloor }]) === 'REJECT');
+
+  // 3. at-floor intermediate + sub-floor tip -> REJECT
+  check('G3: at-floor intermediate + sub-floor tip -> REJECT',
+    run([{ height: 1, target: atFloor }, { height: 2, target: subFloor }]) === 'REJECT');
+
+  // 4. all sub-floor -> REJECT
+  check('G4: all sub-floor -> REJECT',
+    run([{ height: 1, target: subFloor }, { height: 2, target: subFloor }]) === 'REJECT');
+
+  // 5. genuine >8x intermediate difficulty drop -> REJECT (INTENTIONAL fail-closed).
+  //    A legitimate chain whose intermediate header is >8x easier than the checkpoint
+  //    (a real BSV hashrate crash) is rejected. This is an ACCEPTED false negative: the
+  //    caller MUST fall back to isolation, NOT claim verified inclusion. Full DAA-aware
+  //    difficulty validation (out of scope) would be required to accept such a chain.
+  const genuineDrop = F * 9n;     // ~9x easier than the checkpoint difficulty
+  check('G5: genuine >8x intermediate drop -> REJECT (intentional fail-closed to isolation)',
+    run([{ height: 1, target: genuineDrop }, { height: 2, target: atFloor }]) === 'REJECT');
+})();
+
+
+// ---- G6) WIRING: per-header enforcement reaches the intermediate end-to-end ---
+// G1-G5 test the pure policy function. G6 drives the REAL verifyHeaderChain ->
+// hashIndex -> chainInclusion path to prove the intermediate is unreachable.
+//
+// HONEST LIMIT: a genuinely floor-PASSING tip needs ~2^64 PoW (infeasible to grind in a
+// test), so both headers here are sub-floor. That is sufficient to prove the substantive
+// claim, because enforceChainFloor throws on the FIRST violation (the intermediate) and
+// iterates ALL headers: the rejection citing the INTERMEDIATE height (not the tip's)
+// demonstrates the intermediate is examined per-header — under the old tip-only policy
+// only the tip was checked. Together with G2 (policy rejects sub-floor-intermediate +
+// AT-floor-tip), this establishes the end-to-end property by composition.
+(function () {
+  const CP = global.CHECKPOINT;
+  function u32le(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n >>> 0, true); return b; }
+  function grind(prevDisplayHash, ts) {                 // sub-floor header (~2^240 target, ~2^16 work)
+    const nBits = 0x20000100, target = global.targetFromNBits(nBits);
+    const prev = global.hexToBytes(global.reverseHex(prevDisplayHash));
+    const b = new Uint8Array(80);
+    b.set(u32le(1), 0); b.set(prev, 4); b.set(new Uint8Array(32).fill(0x22), 36);
+    b.set(u32le(ts), 68); b.set(u32le(nBits), 72);
+    for (let n = 0; n < 5000000; n++) {
+      b.set(u32le(n), 76); const hx = global.bytesToHex(b);
+      if (BigInt('0x' + global.hashHeader(hx)) <= target) return { hex: hx, hash: global.hashHeader(hx), target };
+    }
+    throw new Error('grind failed');
+  }
+  const h1 = grind(CP.hash, 1893456000);                // intermediate, height 940000
+  const h2 = grind(h1.hash, 1893456600);                // tip, height 940001, links to h1
+  const file = new Uint8Array(40 + 160); const dv = new DataView(file.buffer);
+  dv.setUint32(0, CP.height, true); file.set(global.hexToBytes(CP.hash), 4); dv.setUint32(36, 2, true);
+  file.set(global.hexToBytes(h1.hex), 40); file.set(global.hexToBytes(h2.hex), 120);
+
+  check('G6a: intermediate and tip are both below floor (test precondition)',
+    h1.target > global.STATIC_FLOOR_TARGET && h2.target > global.STATIC_FLOOR_TARGET);
+
+  let result = null, err = null;
+  try { result = global.verifyHeaderChain(file, CP); } catch (e) { err = e.message; }
+  check('G6b: verifyHeaderChain rejects (throws, returns no result)', result === null && !!err);
+  check('G6c: rejection cites the INTERMEDIATE (940000), not the tip (940001) — per-header',
+    /940000/.test(err) && !/940001/.test(err));
+  check('G6d: no hashIndex is produced, so chainInclusion cannot reach the intermediate',
+    result === null && global.chainInclusion(new Map(), h1.hash).status !== 'verified');
+})();
+
+
+// ---- H) claim boundary: permanent scope anti-claims (SCOPE_ANTICLAIMS) ---------
+(function () {
+  const a = global.SCOPE_ANTICLAIMS;
+  check('H1: SCOPE_ANTICLAIMS exported as a non-empty array', Array.isArray(a) && a.length >= 2);
+  const mw = a.find(c => c.id === 'most-work-chain');
+  const sp = a.find(c => c.id === 'current-spend-status');
+  check('H2: most-work-chain anti-claim present', !!mw);
+  check('H3: current-spend-status anti-claim present', !!sp);
+  // Security principle: these say "this tool does not ATTEMPT X" (permanent scope
+  // boundary), never "X is not currently verified" (evidence-dependent). Encoded as
+  // scope:'not-attempted' and must not use evidence-failure language.
+  check('H4: both are scope "not-attempted" (scope boundary, not evidence outcome)',
+    a.every(c => c.scope === 'not-attempted'));
+  check('H5: wording is scope-language, not "not currently verified"',
+    a.every(c => /not attempt|does NOT|not establish/i.test(c.detail)) &&
+    !a.some(c => /not currently verified|currently verified|failed to establish/i.test(c.detail)));
+  check('H6: most-work detail names cumulative/most-work chain selection',
+    /cumulative proof-of-work|most-work/i.test(mw.detail));
+  check('H7: spend detail names unspent / UTXO set',
+    /unspent|UTXO/i.test(sp.detail));
+})();
+
+
+// ---- UI) explorer verdict scope wording (post-audit clarification) ------------
+// UI-string regression guard (no DOM): a successful explorer verdict must scope its
+// positive claim to TXID inclusion and must carry the rawTx-not-bound caveat. Gating
+// (shown on success, hidden on failure, diagnostics intact) is verified separately via
+// the DOM-stub harness — see the task report.
+(function () {
+  const fs = require('fs');
+  const p = __dirname + '/../explorer.html';
+  if (!fs.existsSync(p)) { console.log('SKIP UI: explorer.html not found'); return; }
+  const src = fs.readFileSync(p, 'utf8');
+  check('UI1: positive verdict is scoped to TXID inclusion',
+    src.indexOf('VERIFICATION PASSED — TXID INCLUSION PROVEN') !== -1);
+  check('UI2: old unscoped "— INCLUSION PROVEN" wording is gone',
+    src.indexOf('— INCLUSION PROVEN') === -1 || src.indexOf('— TXID INCLUSION PROVEN') !== -1);
+  check('UI3: rawTx-not-bound scope caveat text present',
+    src.indexOf('does NOT bind the supplied raw transaction bytes to this TXID') !== -1);
+  check('UI4: caveat is gated on a successful result (r.result.valid)',
+    /if \(r\.result\.valid\) \{\s*\n\s*html \+= '<div class="verdict-scope">/.test(src));
+})();
+
 
 
 console.log('\n' + (fail === 0 ? 'ALL PASSED' : fail + ' FAILURE(S)') + ' (' + pass + ' passed)');

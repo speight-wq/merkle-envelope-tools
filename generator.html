@@ -179,8 +179,8 @@
 
     // Convert a WhatsOnChain TSC proof (siblings bottom-to-top, display hex, '*'
     // = duplicate) plus the tx index into a single-client BUMP object in the
-    // shape lib/bump.js consumes. Node order and duplicate handling match the
-    // BRC-74 root algorithm validated against @bsv/sdk.
+    // shape lib/bump.js consumes. Node order and duplicate handling follow the
+    // BRC-74 root algorithm (checked against the BRC-74 published test vector).
     function tscToBump(txid, index, nodes, blockHeight) {
       const path = [];
       const lvl0 = [{ offset: index, txid: true, hash: txid.toLowerCase() }];

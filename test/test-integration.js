@@ -39,6 +39,12 @@ const stubs = {
   hashHeader: () => '00'.repeat(32),
   checkMerkleProofSafe: () => true,
   verifyMerkleProof: () => true,
+  // Production-scope bindings the wired verifier now calls (headers.js globals in the
+  // browser). These envelopes use constructed headers and this suite tests proof/root/
+  // txid behaviour, not difficulty — so difficulty is stubbed true, consistent with the
+  // existing verifyPoW stub. No chain is loaded here, so chain inclusion is 'unknown'.
+  validateHeaderDifficulty: () => ({ valid: true }),
+  chainInclusion: () => ({ status: 'unknown' }),
   BUMP, BEEF, Date, console
 };
 
@@ -70,7 +76,7 @@ let pass = 0, fail = 0;
 const say = (c, m) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + m); };
 
 const good = run(goodEnvelope);
-say(/VALID MERKLE PROOF/.test(good.title), 'valid BUMP envelope -> VALID');
+say(/VALID PROOF — INCLUSION NOT PROVEN/.test(good.title), 'valid BUMP envelope -> VALID PROOF, inclusion not proven (isolation; no chain loaded)');
 say(/BUMP Merkle root matches block header/.test(good.checks), 'valid BUMP envelope -> matching-root check present');
 say(/TXID matches rawTx hash/.test(good.checks), 'txid/rawTx check still runs');
 

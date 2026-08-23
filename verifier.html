@@ -116,6 +116,12 @@
       const checks = [];
       const details = [];
       let allPassed = true;
+      // B1/B2/B3/B5 signal tracking (label only — does NOT change allPassed / any decision).
+      let evaluationError = false, malformed = false, cryptoFailed = false, floorFailed = false;
+      // Semantic evaluation boundary (realm-safe: keyed on error .name, not JS subclass).
+      // Degrades to a pass-through in stub environments that don't load headers.js.
+      const _evalDep = (typeof evalDep === 'function') ? evalDep : function (fn) { return fn(); };
+      const isEvalErr = (typeof isEvaluationError === 'function') ? isEvaluationError : function () { return false; };
 
       // Check required fields
       if (!envelope.txid) {
@@ -141,11 +147,11 @@
             checks.push({ pass: true, text: 'TXID matches rawTx hash' });
           } else {
             checks.push({ pass: false, text: 'TXID does not match rawTx' });
-            allPassed = false;
+            allPassed = false; cryptoFailed = true;
           }
         } catch (e) {
-          checks.push({ pass: false, text: 'Failed to hash rawTx: ' + e.message });
-          allPassed = false;
+          checks.push({ pass: false, text: 'Failed to hash rawTx (malformed encoding): ' + e.message });
+          allPassed = false; malformed = true;
         }
       }
 
@@ -162,13 +168,13 @@
         try {
           if (envelope.blockHeader.length !== 160) {
             checks.push({ pass: false, text: 'Block header not 80 bytes' });
-            allPassed = false;
+            allPassed = false; malformed = true;
           } else {
             const header = parseHeader(envelope.blockHeader);
             details.push({ label: 'Block Time', value: new Date(header.timestamp * 1000).toISOString() });
             
             // Verify PoW
-            if (verifyPoW(envelope.blockHeader)) {
+            if (_evalDep(function () { return verifyPoW(envelope.blockHeader); })) {
               checks.push({ pass: true, text: 'Proof-of-Work valid' });
 
               const blockHash = hashHeader(envelope.blockHeader);
@@ -178,21 +184,21 @@
               // never invoked the floor, so a difficulty-1 forged header passed
               // on PoW-in-isolation alone. Match the signer: floor failure fails
               // the verdict.
-              const diff = validateHeaderDifficulty(envelope.blockHeader);
+              const diff = _evalDep(function () { return validateHeaderDifficulty(envelope.blockHeader); });
               if (diff.valid) {
                 checks.push({ pass: true, text: 'Difficulty floor met' });
               } else {
                 checks.push({ pass: false, text: 'Below difficulty floor: ' + diff.reason });
-                allPassed = false;
+                allPassed = false; floorFailed = true;
               }
             } else {
               checks.push({ pass: false, text: 'Invalid Proof-of-Work' });
-              allPassed = false;
+              allPassed = false; cryptoFailed = true;
             }
           }
         } catch (e) {
-          checks.push({ pass: false, text: 'Header parse error: ' + e.message });
-          allPassed = false;
+          checks.push({ pass: false, text: (isEvalErr(e) ? 'Evaluation error: ' : 'Header parse error: ') + e.message });
+          allPassed = false; if (isEvalErr(e)) evaluationError = true; else malformed = true;
         }
       } else {
         checks.push({ pass: null, text: 'No block header (unconfirmed?)' });
@@ -206,7 +212,12 @@
       //   envelope.beef / .atomicBeef — BRC-62 / BRC-95 hex
       //   envelope.proof       — legacy single-branch proof array (unchanged)
       const hasNewProof = envelope.bump || envelope.beef || envelope.atomicBeef;
-      if (envelope.blockHeader && envelope.txid && (hasNewProof || envelope.proof)) {
+      // A required proof library that is undefined is an internal evaluation failure
+      // (INDETERMINATE), distinct from malformed proof evidence (which is caught below).
+      if (hasNewProof && (typeof BUMP === 'undefined' || (( envelope.beef || envelope.atomicBeef) && typeof BEEF === 'undefined'))) {
+        checks.push({ pass: false, text: 'Evaluation error: proof library unavailable' });
+        allPassed = false; evaluationError = true;
+      } else if (envelope.blockHeader && envelope.txid && (hasNewProof || envelope.proof)) {
         try {
           const txid = envelope.txid.toLowerCase();
           let computedRoot = null, proofKind = null;
@@ -238,13 +249,13 @@
               checks.push({ pass: true, text: proofKind + ' Merkle root matches block header' });
             } else {
               checks.push({ pass: false, text: proofKind + ' Merkle root does not match header' });
-              allPassed = false;
+              allPassed = false; cryptoFailed = true;
             }
           } else {
             // Legacy proof array — unchanged behaviour.
             if (!checkMerkleProofSafe(envelope.proof)) {
               checks.push({ pass: false, text: 'Merkle proof has duplicate hashes (CVE-2012-2459)' });
-              allPassed = false;
+              allPassed = false; cryptoFailed = true;
             } else {
               const header = parseHeader(envelope.blockHeader);
               const valid = verifyMerkleProof(envelope.txid, envelope.proof, header.merkleRoot);
@@ -252,13 +263,13 @@
                 checks.push({ pass: true, text: 'Merkle proof valid' });
               } else {
                 checks.push({ pass: false, text: 'Merkle proof invalid' });
-                allPassed = false;
+                allPassed = false; cryptoFailed = true;
               }
             }
           }
         } catch (e) {
           checks.push({ pass: false, text: 'Merkle proof error: ' + e.message });
-          allPassed = false;
+          allPassed = false; cryptoFailed = true;
         }
       } else if (envelope.blockHeader) {
         checks.push({ pass: null, text: 'No Merkle proof' });
@@ -271,22 +282,22 @@
           // Audit item 4: a supplied chain failed to load. Fail closed rather than
           // reverting to the softer "unknown" (isolation) state.
           checks.push({ pass: false, text: 'Header chain was supplied but failed to verify — fix or remove it' });
-          allPassed = false;
+          allPassed = false; cryptoFailed = true;
         } else {
           try {
-            const ci = chainInclusion(chainHashIndex, hashHeader(envelope.blockHeader));
+            const ci = _evalDep(function () { return chainInclusion(chainHashIndex, hashHeader(envelope.blockHeader)); });
             if (ci.status === 'verified') {
               checks.push({ pass: true, text: 'Block in header chain (height ' + ci.height + ')' });
               inclusionProven = true;
             } else if (ci.status === 'not_in_chain') {
               checks.push({ pass: false, text: 'Block NOT in loaded header chain' });
-              allPassed = false;
+              allPassed = false; cryptoFailed = true;
             } else {
               checks.push({ pass: null, text: 'Chain inclusion NOT proven — no header chain loaded (PoW verified in isolation only)' });
             }
           } catch (e) {
-            checks.push({ pass: false, text: 'Chain check error: ' + e.message });
-            allPassed = false;
+            checks.push({ pass: false, text: (isEvalErr(e) ? 'Evaluation error: ' : 'Chain check error: ') + e.message });
+            allPassed = false; if (isEvalErr(e)) evaluationError = true; else cryptoFailed = true;
           }
         }
       }
@@ -295,7 +306,8 @@
       if (typeof envelope.confirmations === 'number') {
         details.push({ label: 'Confirmations', value: envelope.confirmations.toString() });
         if (envelope.confirmations < 6) {
-          checks.push({ pass: null, text: 'Low confirmations (' + envelope.confirmations + ')' });
+          // B5: advisory only — does not affect the outcome; rendered on a separate axis.
+          checks.push({ pass: null, advisory: true, text: 'Low confirmations (' + envelope.confirmations + ') — advisory only' });
         }
       }
 
@@ -306,7 +318,14 @@
       if (!allPassed) title = 'VERIFICATION FAILED';
       else if (inclusionProven) title = 'VALID — INCLUSION PROVEN';
       else title = 'VALID PROOF — INCLUSION NOT PROVEN (PoW in isolation)';
-      showResult(allPassed, inclusionProven, title, checks, details);
+      // B1: canonical semantic outcome (label only; decision is `allPassed` above, unchanged).
+      const outcome = (typeof classifyOutcome === 'function') ? classifyOutcome({
+        evaluationError, malformed, failed: cryptoFailed,
+        policyRejected: floorFailed && !cryptoFailed && !malformed && !evaluationError,
+        cryptoEstablished: allPassed,
+        chainLoaded: !!chainHashIndex, inclusionVerified: inclusionProven
+      }) : null;
+      showResult(allPassed, inclusionProven, title, checks, details, outcome);
     });
 
     document.getElementById('headers-file').addEventListener('change', async function(e) {
@@ -334,7 +353,7 @@
       }
     });
 
-    function showResult(valid, inclusionProven, title, checks, details) {
+    function showResult(valid, inclusionProven, title, checks, details, outcome) {
       const resultSection = document.getElementById('result-section');
       const resultBox = document.getElementById('result-box');
       const resultTitle = document.getElementById('result-title');
@@ -347,12 +366,22 @@
       const icon = !valid ? '✗ ' : (inclusionProven ? '✓ ' : '⚠ ');
       resultBox.className = 'result-box ' + cls;
       resultTitle.textContent = icon + title;
+      // B1: expose the canonical semantic outcome (shared vocabulary) as a machine-readable
+      // attribute + a visible line, without altering the decision or the title.
+      if (outcome) { resultTitle.setAttribute('data-outcome', outcome); }
 
       let checksHtml = '';
       for (const c of checks) {
+        if (c.advisory) continue; // B5: advisories render separately, below
         const icon = c.pass === true ? '✓' : (c.pass === false ? '✗' : '!');
         const cls = c.pass === true ? 'check-pass' : (c.pass === false ? 'check-fail' : 'check-warn');
         checksHtml += '<div class="check-item ' + cls + '">' + icon + ' ' + c.text + '</div>';
+      }
+      if (outcome) { checksHtml += '<div class="check-item" style="opacity:0.75;margin-top:6px">Outcome: ' + outcome + '</div>'; }
+      // B5: advisories — separate axis, explicitly not part of the verification outcome.
+      const advisories = checks.filter(function (c) { return c.advisory; });
+      for (const a of advisories) {
+        checksHtml += '<div class="check-item check-warn">! ' + a.text + '</div>';
       }
       checksDiv.innerHTML = checksHtml;
 

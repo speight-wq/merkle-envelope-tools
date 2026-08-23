@@ -544,7 +544,7 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
       }
       const floor = window.validateHeaderDifficulty(hdr);
       if (!floor.valid) {
-        result.failureType = 'POW_INVALID';
+        result.failureType = 'POLICY_REJECTED';
         result.failureDetails = { blockHash: result.blockHash, reason: floor.reason };
         result.steps.push({ name: 'Difficulty floor', status: 'fail' });
         return result;
@@ -726,7 +726,33 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
     // ============================================================
     // MAIN VERIFICATION PROCEDURE
     // ============================================================
+    // B1: map chain's failureType vocabulary onto the shared semantic outcome enum.
+    function deriveChainOutcome(r) {
+      const O = (typeof OUTCOME !== 'undefined') ? OUTCOME : { VERIFIED:'VERIFIED', FAILED:'FAILED', MALFORMED:'MALFORMED', POLICY_REJECTED:'POLICY-REJECTED', INDETERMINATE:'INDETERMINATE', NOT_ESTABLISHED:'NOT-ESTABLISHED' };
+      if (r.evaluationError || r.failureType === 'EVALUATION_ERROR') return O.INDETERMINATE;
+      if (r.result === 'VALID') return O.VERIFIED;
+      switch (r.failureType) {
+        case 'STRUCTURE_INVALID': case 'TX_PARSE_ERROR': return O.MALFORMED;
+        case 'POLICY_REJECTED': return O.POLICY_REJECTED;
+        case 'ORDERING_INVALID': case 'TXID_MISMATCH': case 'POW_INVALID': case 'MERKLE_MISMATCH': return O.FAILED;
+        default: return O.FAILED;
+      }
+    }
+    // B1/B3 wrapper: every return path carries a semantic outcome; an internal exception
+    // becomes INDETERMINATE, never a claim that the chain evidence itself is invalid.
     function verifyChain(envelopes) {
+      let res;
+      try { res = _verifyChainImpl(envelopes); }
+      catch (e) {
+        const O = (typeof OUTCOME !== 'undefined') ? OUTCOME : { INDETERMINATE:'INDETERMINATE' };
+        return { version: PROTOCOL_VERSION, result: 'FAILED', outcome: O.INDETERMINATE, evaluationError: true,
+                 failureType: 'EVALUATION_ERROR', failureDetails: { reason: 'Evaluation error: ' + e.message },
+                 chainMetadata: { hopCount: (envelopes||[]).length }, claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []), hops: [] };
+      }
+      if (res && !res.outcome) res.outcome = deriveChainOutcome(res);
+      return res;
+    }
+    function _verifyChainImpl(envelopes) {
       const result = {
         version: PROTOCOL_VERSION,
         timestamp: new Date().toISOString(),
@@ -797,7 +823,7 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
           // Audit item 5: never let a crafted input crash out of verification;
           // fail closed to a structured hop result.
           hopResult = { hopIndex: i, txid: envelopes[i] && envelopes[i].txid, valid: false,
-            failureType: 'STRUCTURE_INVALID', failureDetails: { reason: 'Hop verification error: ' + e.message }, steps: [] };
+            failureType: 'EVALUATION_ERROR', evaluationError: true, failureDetails: { reason: 'Hop verification error: ' + e.message }, steps: [] };
         }
         hopResults.push(hopResult);
         

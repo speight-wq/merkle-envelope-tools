@@ -130,7 +130,11 @@ console.log('TEST 2  attachBump self-verify guard    : done');
     hash256, bytesToHex: (b) => Buffer.from(b).toString('hex'),
     reverseHex: (h) => h.match(/../g).reverse().join(''),
     parseHeader: () => ({ timestamp: 0, merkleRoot: 'x' }), verifyPoW: () => true,
-    hashHeader: () => '00'.repeat(32), checkMerkleProofSafe: () => true, verifyMerkleProof: () => true
+    hashHeader: () => '00'.repeat(32), checkMerkleProofSafe: () => true, verifyMerkleProof: () => true,
+    // Production-scope bindings the wired verifier now calls (headers.js globals in the
+    // browser). Constructed header + no chain loaded; difficulty stubbed true (as verifyPoW
+    // already is), chain inclusion 'unknown'.
+    validateHeaderDifficulty: () => ({ valid: true }), chainInclusion: () => ({ status: 'unknown' })
   };
   vm.createContext(vctx);
   vm.runInContext(vscript, vctx);
@@ -138,7 +142,7 @@ console.log('TEST 2  attachBump self-verify guard    : done');
   ['result-box', 'result-title', 'checks', 'details', 'result-section'].forEach(id => vctx.document.getElementById(id));
   vctx.document.getElementById('verify-btn')._click();
   const title = els['result-title']._tc, checks = (els['checks']._html || '').replace(/<[^>]+>/g, ' ');
-  assert(/VALID MERKLE PROOF/.test(title), 'wired verifier returns VALID for generator-emitted bump');
+  assert(/VALID PROOF — INCLUSION NOT PROVEN/.test(title), 'wired verifier returns VALID-in-isolation for generator-emitted bump (no chain loaded)');
   assert(/BUMP Merkle root matches block header/.test(checks), 'verifier reports BUMP root match');
 }
 console.log('TEST 3  generator -> verifier round trip: done');
