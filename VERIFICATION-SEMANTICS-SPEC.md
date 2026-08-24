@@ -39,6 +39,36 @@ Proof-selection order in the verifier (verifier.html:208–214): `bump` → `bee
 → legacy `proof`. **`bump` is preferred over `proof` when both are present.** This fact is
 load-bearing for §K.
 
+**Byte-order convention (clarified via the conformance experiment — this was previously
+underspecified and caused an independent implementation to diverge).** `txid`, self-declared
+`blockHash`, and the header's merkle-root *field* are DISPLAY (big-endian) order. The legacy
+`proof[].hash` sibling values are **NATURAL (internal) byte order** and are used verbatim in
+the fold (the txid is reversed to natural first; siblings are not reversed). `pos` (`'L'` /
+`'R'`) denotes the **sibling's** side. BUMP (BRC-74) and BEEF (BRC-62) carry their own byte
+order per those standards, so they are unaffected. An implementer who assumes legacy proof
+hashes are display order will reject valid legacy proofs (a false negative); the reference and
+the real mainnet fixture both use natural order.
+
+**Required fields and header-state (GAP A resolution — this was previously contradictory:
+§B said "required" while the corpus said missing-header → NOT-ESTABLISHED).** `txid` and
+`blockHeader` are REQUIRED; a proof form (`proof` | `bump` | `beef` | `atomicBeef`) is
+optional and, when absent, is treated as an **empty depth-0 legacy proof** (so the Merkle
+comparison decides the outcome — a single-tx block where `txid == root` verifies, otherwise
+FAILED). Authoritative header-state table:
+
+| Input state | Outcome |
+|---|---|
+| `blockHeader` missing | MALFORMED |
+| `blockHeader` empty (`""`) | MALFORMED |
+| `blockHeader` malformed (non-hex, or length ≠ 160) | MALFORMED |
+| `blockHeader` structurally valid | proceed (outcome from §G) |
+
+Rationale: without a well-formed header the verification subject (this tx is committed to
+*this* block) cannot even be stated, and PoW cannot be evaluated — so the input is MALFORMED,
+not "evidence absent." NOT-ESTABLISHED is therefore **not** a top-level outcome for
+well-formed envelopes; it remains a per-claim status for the permanent scope anti-claims
+(§J). A missing *proof* is not NOT-ESTABLISHED either (see empty depth-0 rule above).
+
 ## C. Cryptographic invariants (must be true for ESTABLISHED)
 
 1. `txid == SHA256d(rawTx)` (display-reversed). *verifier.html ~137, chain.html:502–504.*
@@ -68,6 +98,20 @@ subject — it is **not** a statement that the transaction is invalid (see §I).
 2. **Per-header difficulty floor.** Every admitted header (standalone or every header of a
    loaded chain) must satisfy `target ≤ checkpoint_target × 8`. Enforced per header because
    `chainInclusion()` can report any admitted header as verified.
+3. **Header timestamp sanity (GAP B resolution — Option A: in the contract).** The header
+   timestamp (bytes 68–72, little-endian uint32, seconds) must satisfy
+   `GENESIS_TIMESTAMP ≤ timestamp ≤ wallclock_now + MAX_FUTURE_SECONDS`, with
+   `GENESIS_TIMESTAMP = 1231006505` (2009-01-03) and `MAX_FUTURE_SECONDS = 7200` (2h).
+   Applies to every validated header (not just the tip); it affects header validity, not
+   chain inclusion. A violation is **POLICY-REJECTED** (same bucket as the floor), never
+   FAILED or MALFORMED. The upper bound uses the evaluator's wall clock and is the **one
+   non-deterministic input** in the contract: two evaluators at very different times could
+   disagree only for a header timestamped within `MAX_FUTURE_SECONDS` of *now*; for any
+   historical header this never triggers, so it does not affect reproducibility in practice.
+   Precedence note: because §G ranks FAILED above POLICY-REJECTED and PoW is checked before
+   policy, a header that both fails PoW and has a bad timestamp is FAILED — so this rule is
+   only observable on a PoW-valid header, which is why conformance verifies it at the
+   policy-function level (an end-to-end case would require mining).
 
 These are *local heuristics*, explicitly not consensus. A sub-floor-but-otherwise-valid
 header is well-formed Bitcoin; the tool rejects it by **policy**. Result objects for a
@@ -85,7 +129,7 @@ not `MALFORMED` (the input parsed fine) and not `POLICY-REJECTED` (nothing about
 |---|---|---|
 | `ESTABLISHED` | Evidence present and supports the claim | root matches header; PoW valid; block in loaded chain |
 | `FAILED` | Evidence present and cryptographically contradicts the claim | root mismatch; invalid PoW; `txid ≠ SHA256d(rawTx)`; `not_in_chain`; chain-load failure |
-| `NOT-ESTABLISHED` | Not attempted by design, or required external evidence absent | isolation (no chain); `most-work-chain`; `current-spend-status`; missing header/proof |
+| `NOT-ESTABLISHED` | Not attempted by design (per-claim scope only) | `most-work-chain`; `current-spend-status` (never a top-level verdict for well-formed input) |
 | `POLICY-REJECTED` | Well-formed and cryptographically valid, outside a declared local policy | sub-floor header; non-checkpoint anchor |
 | `MALFORMED` | Input cannot be parsed into a well-defined subject | bad hex; trailing bytes; truncation; depth > 32; Atomic subject not last |
 | `INDETERMINATE` | The verifier could not complete evaluation (internal/tool failure) | dependency threw; missing function; unexpected exception |
@@ -483,8 +527,8 @@ in a declared `POLICY-REJECTED` threshold.
 | 6 | intermediate sub-floor header | `POLICY-REJECTED` (target: today `FAILED` — blocker B2) |
 | 7 | chain membership failure | `FAILED` (`not_in_chain`) |
 | 8 | malformed envelope (bad hex/trailing/depth>32/atomic-subject-not-last) | `MALFORMED` |
-| 9 | missing header | `NOT-ESTABLISHED` (inclusion; evidence absent) |
-| 10 | missing proof | `NOT-ESTABLISHED` |
+| 9 | missing / empty / malformed header | `MALFORMED` (GAP A: header is required) |
+| 10 | missing proof (multi-tx block) | `FAILED` (absent proof = empty depth-0; root = txid ≠ header root) |
 | 11 | internal verifier exception | `INDETERMINATE` (target: today mislabeled — blocker B3) |
 | 12 | advisory-only low confirmations | outcome unchanged + advisory flag |
 | 13 | same evidence, different chain state | outcome may differ; **evidence digest identical** |

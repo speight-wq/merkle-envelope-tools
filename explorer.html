@@ -423,6 +423,19 @@
         r.timing.totalMs = performance.now() - startTime;
         return r;
       }
+
+      // A structurally invalid proof (bad hash length, non-'L'/'R' position, duplicate
+      // sibling, bad txid/header length) is MALFORMED input. Return here BEFORE the Merkle
+      // fold, which would otherwise throw on a non-hex sibling and escape as an uncaught
+      // exception (spec §D/§F: malformed input -> MALFORMED, never an uncaught throw).
+      if (!r.structureValidation.valid) {
+        r.result.reason = 'Malformed proof structure: ' + (r.structureValidation.anomalies || []).join('; ');
+        r.result.likelyCause = 'Malformed proof';
+        r.result.outcome = OUTCOME.MALFORMED;
+        finalizeHashes(r);
+        r.timing.totalMs = performance.now() - startTime;
+        return r;
+      }
       
       const hdr = envelope.blockHeader;
       try {
