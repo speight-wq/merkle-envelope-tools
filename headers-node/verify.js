@@ -203,6 +203,39 @@ function headerPolicy(headerHex){
 }
 function difficultyFloorOk(bits){ return targetFromBits(bits) <= floorTarget(); }
 
+// ---- Chain loading & anchoring (§O): headers.bin -> anchored hashIndex ---------------
+// Independent implementation from spec §O. Produces the display-hash -> height index that
+// verify()'s §C-4 membership test consumes. Fails closed on anchor mismatch, chain break,
+// invalid PoW, or a sub-floor header.
+function loadChain(bytes, opts){
+  opts = opts || {};
+  const requireCheckpoint = opts.requireCheckpoint !== false;
+  if (bytes.length < 40) throw new MalformedInput('headers file too small');
+  const anchorHeight = bytes.readUInt32LE(0);
+  const anchorHash = bytes.slice(4, 36).toString('hex'); // stored display order
+  const headerCount = bytes.readUInt32LE(36);
+  if (bytes.length < 40 + headerCount * 80) throw new MalformedInput('headers file truncated');
+  if (requireCheckpoint &&
+      (anchorHeight !== CHECKPOINT.height || anchorHash.toLowerCase() !== CHECKPOINT.hash.toLowerCase()))
+    throw new PolicyRejection('chain anchor does not match embedded checkpoint');
+  const hashIndex = new Map();
+  const floor = floorTarget();
+  let prevHash = anchorHash, tipHash = anchorHash, tipHeight = anchorHeight, offset = 40;
+  for (let i = 0; i < headerCount; i++){
+    const height = anchorHeight + 1 + i;
+    const headerHex = bytes.slice(offset, offset + 80).toString('hex');
+    const hdr = parseHeader(headerHex);
+    const prevBlock = reverseHex(bytes.slice(offset + 4, offset + 36).toString('hex')); // -> display
+    if (prevBlock.toLowerCase() !== prevHash.toLowerCase()) throw new VerificationFailure('chain break at ' + height);
+    if (!powValid(headerHex, hdr.bits)) throw new VerificationFailure('invalid PoW at ' + height);
+    if (targetFromBits(hdr.bits) > floor) throw new PolicyRejection('header below difficulty floor at ' + height);
+    const hash = hashHeaderDisplay(headerHex);
+    hashIndex.set(hash.toLowerCase(), height);
+    prevHash = hash; tipHash = hash; tipHeight = height; offset += 80;
+  }
+  return { hashIndex, tipHeight, tipHash, anchor: { height: anchorHeight, hash: anchorHash } };
+}
+
 // ---- Evidence digest (§K): verdict-relevant identity, absent != empty --------------
 function frame(s){ s = (s == null ? '' : String(s)); return s.length + ':' + s; }
 function frameOpt(name, val){ return frame(name) + (val == null ? '0' : '1' + frame(String(val))); }
@@ -360,6 +393,6 @@ module.exports = {
   verify, OUTCOME, CHECKPOINT, TOLERANCE,
   evidenceIdentity, classifyOutcome,
   parseHeader, hashHeaderDisplay, targetFromBits, powValid,
-  merkleRootFromLegacy, parseBump, merkleRootFromBump, difficultyFloorOk, headerPolicy,
+  merkleRootFromLegacy, parseBump, merkleRootFromBump, difficultyFloorOk, headerPolicy, loadChain,
   MalformedInput, EvaluationError, VerificationFailure, PolicyRejection
 };

@@ -84,6 +84,29 @@ well-formed envelopes; it remains a per-claim status for the permanent scope ant
    self-declared value. The header hash commits to the merkle root, so a hashIndex hit means
    the chain holds the byte-identical header.
 
+**Normative definitions (added after the conformance review found these were assumed, not
+stated — they are standard Bitcoin but must not rely on unstated domain knowledge):**
+
+- **`SHA256d(x)`** = `SHA256(SHA256(x))` over raw bytes.
+- **Byte order.** The 80-byte header is little-endian on the wire: `version(4) prevHash(32)
+  merkleRoot(32) time(4) bits(4) nonce(4)`. The header's merkle-root *field* (bytes 36–68)
+  is little-endian ("natural"); reverse it to compare against a "display" root. `txid` and
+  block hashes are **display** (big-endian) and are reversed to natural before hashing.
+- **`target(nBits)` — compact-target decoding (Bitcoin consensus "nBits").** Let
+  `exponent = nBits >> 24` and `mantissa = nBits & 0x007fffff`. Then
+  `target = mantissa << (8 × (exponent − 3))` for `exponent ≥ 3`, else
+  `target = mantissa >> (8 × (3 − exponent))`. (The `0x00800000` sign bit is never set in
+  valid headers; an implementation may reject it.) `checkpoint_target = target(checkpoint
+  nBits)`; the floor is `checkpoint_target × toleranceMultiplier`.
+- **PoW comparison byte-order (security-critical).** `SHA256d(header)` yields 32 natural-order
+  bytes; interpret them as a **little-endian** 256-bit unsigned integer for the `≤ target`
+  comparison. (Interpreting big-endian inverts the test — a stranger who assumes big-endian
+  builds a broken verifier. This is the single most important byte-order rule here.)
+- **Merkle fold.** Working value starts as the natural-order txid. At each step concatenate
+  `left || right` (32-byte natural values; `pos` selects which side the sibling is on — see
+  §B), take `SHA256d`, and continue. The final value, reversed to display, is compared to the
+  header's display merkle root.
+
 ## D. Structural invariants (must be true or the subject is MALFORMED)
 
 Strict hex; bounds-checked readers; consume-all (no trailing bytes); BUMP/BEEF parse within
@@ -348,9 +371,63 @@ the §F outcome enum and §G composition; the §H advisory axis; the §K evidenc
 set and byte-framing; and the §C/§D/§E invariants. It does **not** need most-work, spend
 status, or script evaluation.
 
+**Chain-loading is now specified (§O) and demonstrated.** The membership test consumes a
+`hashIndex` anchored at the checkpoint; §O gives the full `headers.bin` → anchored-index
+algorithm (format, fail-closed anchoring, per-header linkage + PoW, whole-chain floor).
+`headers-node.loadChain` implements it independently and reproduces the reference
+`verifyHeaderChain` exactly on the real fixture (identical index; matching rejections for
+anchor mismatch, chain break, truncation). The earlier "component gap" is closed — a
+from-scratch build now has every algorithm it needs from this document.
+
 ---
 
-## Test inventory (reproducible facts only)
+## O. Chain loading and anchoring (the `headers.bin` → anchored index)
+
+The §C-4 membership test consumes a `hashIndex` (map of computed **display** header hash →
+height) that must be **anchored at the checkpoint**. This section specifies how that index is
+produced from a raw `headers.bin`, so a from-scratch implementation is complete. (Reference:
+`verifyHeaderChain`, headers.js.)
+
+**File format.** A 40-byte prefix followed by `headerCount` consecutive 80-byte headers:
+
+| Offset | Size | Field | Encoding |
+|---|---|---|---|
+| 0 | 4 | `anchorHeight` | uint32 little-endian |
+| 4 | 32 | `anchorHash` | 32 bytes in **display** (big-endian) order, i.e. hex equals the checkpoint hash string |
+| 36 | 4 | `headerCount` | uint32 little-endian |
+| 40 | 80·N | headers | consecutive 80-byte block headers (§C byte layout) |
+
+Reject as MALFORMED if `length < 40` or `length < 40 + headerCount·80` (truncated).
+
+**Anchoring — fail closed (the single thing pinning the chain to the real network).**
+`(anchorHeight, anchorHash)` MUST equal the embedded checkpoint `(height, hash)`. If it does
+not, **reject the chain** (do not load it) — a chain not rooted at the trusted checkpoint is
+refused, never accepted as advisory. A caller may pass an explicit opt-in weaker mode
+(`requireCheckpoint:false`) but the default and specified behaviour is to fail closed. When a
+chain fails to load for any reason in this section, the verifier does **not** silently
+downgrade to isolation *inside* a loaded-chain verdict — it fails closed (a chain was supplied
+and is unusable); isolation means *no chain supplied* (§B / §G-5).
+
+**Per-header processing.** Initialise `prevHash = anchorHash`. For `i = 0 … headerCount−1`
+(height `= anchorHeight + 1 + i`):
+1. Parse the 80-byte header (§C). A parse failure is MALFORMED.
+2. **Linkage:** the header's `prevBlock` (display) MUST equal `prevHash`; else reject
+   ("chain break at height").
+3. **PoW:** the header's computed display hash, as a 256-bit integer, MUST be `≤ target(nBits)`
+   (§C PoW rule); else reject ("invalid PoW at height").
+4. Record `hashIndex[computedDisplayHash] = height`; set `prevHash = computedDisplayHash`.
+
+**Whole-chain difficulty floor (policy §E-2, per header).** *Every* admitted header must
+satisfy `target(nBits) ≤ checkpoint_target × toleranceMultiplier` — enforced for every header,
+not just the tip, because the membership test can report any admitted header as verified;
+this prevents amortising one floor-difficulty tip across many cheap forged intermediates. A
+violation fails closed (accepted trade-off: a genuine >8× drop is rejected rather than risk a
+false accept; documented false-negative-over-false-positive).
+
+**Output.** `{ hashIndex, tipHeight, tipHash, anchor }`. Only `hashIndex` is required by §C-4;
+the rest is informational. The loader performs no most-work / reorg selection (§J).
+
+
 
 | Test | Deterministic | Reproduces clean | Tests | Browser | Mainnet data | Conformance-suitable |
 |---|---|---|---|---|---|---|
