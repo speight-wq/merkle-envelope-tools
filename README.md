@@ -215,8 +215,6 @@ verify independently; the chain loader produces a byte-identical anchored index;
 cross-binding attacks and unanchored-index injection are refused. Run them from the repo root:
 `node headers-node/conformance.js` and `FIX=. node headers-node-independent/selftest.js`.
 
-**Honest ceiling.**A third party security audit remain the real external tests and are not claimed here.
-
 ## Testing
 
 - `lib/bump.js`, `lib/beef.js` - module self-tests (`node lib/bump.js`, `node lib/beef.js`).
