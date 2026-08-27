@@ -1,12 +1,26 @@
 # Merkle Envelope Tools
 
-**Deterministic, fully offline SPV verification and forensic audit instruments for Bitcoin SV.**
+**Deterministic, fully offline SPV verification and forensic audit tools for Bitcoin SV.**
 
-Package a transaction with its Merkle proof and block header, then verify inclusion and proof-of-work with no node, API, or third party — and get a reproducible record of *what was verified and what was not*. The tools speak the ecosystem's standard proof formats (**BUMP** BRC-74, **BEEF / Atomic BEEF** BRC-62 / BRC-95), so proofs move both ways with any BRC-62/74-compatible wallet (e.g. `@bsv/sdk`). Pure vanilla JavaScript, zero dependencies.
+Package a transaction with its Merkle proof and block header, then verify inclusion and
+proof-of-work with no node, no API, and no third party - and get back a reproducible record
+of *exactly what was proved and what was not*. The single idea the whole project is built
+around: a green check that cannot be independently reproduced is not verification, it is
+trust. So every tool states the precise scope of its verdict and refuses to imply more.
 
-The principle throughout: a green check that can't be independently reproduced is not verification, it's trust. So every tool states the exact scope of what it proved and refuses to imply more.
+The tools speak the ecosystem's standard proof formats (BUMP / BRC-74, BEEF and Atomic-BEEF /
+BRC-62 and BRC-95), so proofs move both ways with any BRC-62/74-compatible wallet (for example
+`@bsv/sdk`). Pure vanilla JavaScript, zero dependencies.
 
----
+## Why it exists
+
+Most "verified" badges in practice mean "a server I trusted said so." This project replaces
+that with a check the user runs themselves, offline, against a checkpoint they can audit - and
+that is honest about the difference between "this transaction is in a block with valid
+proof-of-work" and the much stronger claims (most-work chain, unspent status) that SPV cannot
+make. The verification semantics are written down as a normative specification, and a second,
+separately-written verifier is built from that specification to test whether the rules are
+precise enough to reproduce.
 
 ## Tools
 
@@ -18,13 +32,14 @@ The principle throughout: a green check that can't be independently reproduced i
 | `verifier.html` | Offline | Quick pass/fail verification (proof / BUMP / BEEF + chain inclusion) |
 | `explorer.html` | Offline | Forensic SPV proof analysis with a deterministic verification record |
 | `chain.html` | Offline | Multi-hop lineage verification (also accepts a single envelope) |
-| `tests.html` | Offline | 82 in-browser test vectors (BUMP / BEEF / chain-inclusion) |
-| `tests-mainnet.html` | Offline | 31 real-mainnet verification tests |
+| `tests.html` | Offline | In-browser test-vector page (BUMP / BEEF / chain-inclusion) |
+| `tests-mainnet.html` | Offline | In-browser real-mainnet verification page |
 | `verify_vectors.py` | Offline | Standalone Python vector checker (stdlib only) |
 
-**Workflow:** `generator.html` (online) → USB → `signer.html` (offline) → USB → broadcast (online). Verify or audit any envelope offline with `verifier.html`, `explorer.html`, or `chain.html`. Load order in HTML: `crypto.js` → `encoding.js` → `headers.js` → `bump.js` → `beef.js`.
-
----
+**Workflow:** `generator.html` (online) -> USB -> `signer.html` (offline) -> USB -> broadcast
+(online). Verify or audit any envelope offline with `verifier.html`, `explorer.html`, or
+`chain.html`. Load order in HTML: `crypto.js` -> `encoding.js` -> `headers.js` -> `bump.js`
+-> `beef.js`.
 
 ## Envelope format
 
@@ -40,75 +55,201 @@ The principle throughout: a green check that can't be independently reproduced i
 }
 ```
 
-`vout` and (`blockHeader` + `proof`) are required — no silent defaults. `bump` (BRC-74 hex) is optional and preferred over `proof` when present; a `beef` / `atomicBeef` hex field is also accepted. The verifier tries, in order, `bump` → `beef` / `atomicBeef` → legacy `proof`. Existing envelopes verify unchanged. A single envelope object may be pasted anywhere an array is accepted (including `chain.html`).
+`txid` and `blockHeader` are required. A proof is supplied as `bump` (BRC-74 hex, preferred),
+`beef` / `atomicBeef` (BRC-62 / BRC-95 hex), or a legacy `proof` branch; the verifier tries
+them in that order. `vout` and `satoshis` are advisory (display only). A single envelope
+object may be pasted anywhere an array is accepted (including `chain.html`), and existing
+envelopes verify unchanged.
 
-BUMP/BEEF live in `lib/bump.js` and `lib/beef.js`. The generator converts each source proof to a BUMP and **self-verifies it against the header's Merkle root before attaching it** — if it doesn't reconstruct, it keeps the legacy proof and warns rather than emitting a bad BUMP. `beef.js parse` validates the Atomic-BEEF subject per BRC-95 (subject must be present, the last transaction, and the container may hold only its ancestors) and fails closed otherwise.
+BUMP/BEEF live in `lib/bump.js` and `lib/beef.js`. The generator converts each source proof to
+a BUMP and self-verifies it against the header's Merkle root before attaching it - if it does
+not reconstruct, it keeps the legacy proof and warns rather than emitting a bad BUMP.
+`beef.js parse` validates the Atomic-BEEF subject per BRC-95 (the subject must be present, must
+be the last transaction, and the container may hold only its ancestors) and fails closed
+otherwise.
 
----
+## How verification works
 
-## Trust model & limitations
+For a standalone envelope the verifier checks, in order:
 
-This is the important part. Read it before relying on a verdict.
+1. `txid == SHA256d(rawTx)` (in `verifier.html` and `chain.html`; `explorer.html` deliberately
+   skips this and claims TXID inclusion, not transaction-byte inclusion).
+2. The Merkle root, folded up from the txid through the supplied proof, equals the block
+   header's own Merkle-root field.
+3. The header meets its own proof-of-work: `SHA256d(header) <= target(nBits)`, with the hash
+   compared as a little-endian 256-bit integer and `target(nBits)` decoded from the compact
+   "nBits" encoding.
+4. If a `headers.bin` is loaded, the block's computed hash is a member of that
+   checkpoint-anchored, proof-of-work-linked header chain.
 
-**You trust:** the embedded checkpoint is the real block; the data source was honest at generation time; your offline machine is not compromised.
+The block hash used everywhere is the computed `SHA256d(blockHeader)`, never a self-declared
+value. Consensus math (PoW, target, floor, chain membership) lives once in `headers.js` and is
+shared by every tool, so the tools cannot drift apart.
 
-**You verify (cryptographically):** the transaction is in the Merkle tree; the block meets its own PoW target; TXID matches `SHA256d(rawTx)`; and, if a `headers.bin` is loaded, the block is in a checkpoint-anchored, PoW-linked header chain.
+**Top-level verdicts (six).** Every verification resolves to exactly one:
 
-**Checkpoint (block 939,999 — the anchor of `headers.bin`):**
+- `VERIFIED` - all required claims hold, including membership in the loaded chain.
+- `VERIFIED-ISOLATION` - proof and PoW hold, but no chain is loaded, so inclusion is not
+  claimed. A distinct verdict, never shown as a chain-verified pass.
+- `FAILED` - evidence is present and cryptographically contradicts the claim (root mismatch,
+  invalid PoW, `txid != SHA256d(rawTx)`, block not in the loaded chain, or a chain-load
+  failure).
+- `POLICY-REJECTED` - the evidence is well-formed and cryptographically valid but a local
+  policy rejects it (a sub-floor header, or a non-checkpoint anchor).
+- `MALFORMED` - the input could not be parsed into a well-defined subject (bad hex, trailing
+  bytes, truncation, depth over 32, an Atomic-BEEF subject that is not last).
+- `INDETERMINATE` - the verifier itself could not finish evaluating (an internal or dependency
+  failure). It never renders as a statement about the evidence.
+
+Beneath these, each individual claim carries a per-claim status of ESTABLISHED or
+NOT-ESTABLISHED; NOT-ESTABLISHED is used for the permanent scope boundaries below and is never
+a top-level verdict for well-formed input. Advisories (for example low confirmations) sit on a
+separate axis and never change the verdict.
+
+## Trust model
+
+Read this before relying on a verdict.
+
+**You trust:** that the embedded checkpoint is the real block; that the data source was honest
+at generation time; and that your offline machine is not compromised.
+
+**You verify cryptographically:** that the transaction is in the Merkle tree; that the block
+meets its own PoW target; that `txid == SHA256d(rawTx)`; and, when a `headers.bin` is loaded,
+that the block is in a checkpoint-anchored, PoW-linked header chain.
+
+**Checkpoint (block 939,999 - the anchor of `headers.bin`):**
 ```
 height: 939999
 hash:   00000000000000000e7aea9b454b4acc945e6ae5883ca7254809e538bb54ef12
-nBits:  0x18227b71   (difficulty 31.886e9, target ~2^189)
+nBits:  0x18227b71
 ```
-The checkpoint is a **single-source trust anchor.** Internal PoW validity does not prove canonicality — on BSV, ~one block of work is within a resourced attacker's reach. **Independently confirm both the hash and the `nBits`** on multiple explorers (e.g. whatsonchain block 939999 / 940000) before trusting high-value transactions. `headers.js` exposes `checkpointFloorStatus()` and emits a `console.warn` if the configured `nBits` ever makes the difficulty floor looser than difficulty-1.
+The checkpoint is a single-source trust anchor. Internal PoW validity does not prove
+canonicality - on BSV, roughly one block of work is within a resourced attacker's reach.
+Independently confirm both the hash and the `nBits` on multiple explorers (for example
+whatsonchain, blocks 939999 and 940000) before trusting high-value transactions. `headers.js`
+exposes `checkpointFloorStatus()` and logs a warning if the configured `nBits` would ever make
+the floor looser than difficulty-1.
 
-**Difficulty floor — a heuristic, not consensus.** Enforced **per header** on standalone envelope headers and on **every** header of a loaded chain (target ≤ checkpoint difficulty × 8). Because `chainInclusion()` can report *any* admitted header as "verified," the floor must hold for every header — not just the tip — so one expensive floor-difficulty header can't be amortized across many cheap forged intermediates. Forging inclusion therefore costs ≥ ~one floor-difficulty block of PoW (a heuristic bound, not economic finality). A loaded chain may only make the floor *stricter* (raise-only); a low-difficulty tip can never lower the bar. Accepted trade-off: a legitimate chain containing a header genuinely >8× easier than the checkpoint (a real BSV hashrate crash) is rejected — the chain **fails closed** exactly like any chain-load failure; the verdict does **not** silently downgrade to isolation (isolation means *no chain loaded*), and never to a false "verified." Retarget-aware (DAA) validation is out of scope.
+**Difficulty floor - a heuristic, not consensus.** Enforced per header on a standalone
+envelope header and on every header of a loaded chain: `target <= checkpoint_target x 8`.
+Because chain membership can report any admitted header as "verified," the floor must hold for
+every header, not just the tip, so one expensive floor-difficulty header cannot be amortized
+across many cheap forged intermediates. Forging inclusion therefore costs at least about one
+floor-difficulty block of proof-of-work - a heuristic cost bound, not economic finality. A
+loaded chain may only make the floor stricter (raise-only); a low-difficulty tip can never
+lower it. Accepted trade-off: a legitimate chain that genuinely contains a header more than 8x
+easier than the checkpoint (a real BSV hashrate crash) is rejected - the chain fails closed,
+exactly like any chain-load failure. The verdict does not silently downgrade to isolation
+(isolation means no chain was loaded), and never to a false "verified." Retarget-aware (DAA)
+validation is out of scope.
 
-**Chain-inclusion states — never collapsed:**
-- **verified** — block is in the loaded, checkpoint-anchored chain (green, "inclusion proven").
-- **not in chain** — a chain is loaded but this block is absent → **fails closed** (red).
-- **isolation** — no chain loaded → PoW proven in isolation; inclusion *not* claimed → distinct **amber** verdict, never the green of a chain-verified pass.
-- **load failed** — a supplied `headers.bin` failed to verify → **fails closed** (no silent downgrade to isolation).
+**Chain-index trust boundary.** Chain membership can establish a `VERIFIED` verdict only from
+an index produced by the checkpoint-anchored, predecessor-validated loader. The shipped
+verifiers enforce this structurally: the header index is an internal variable assigned only
+from the loader's output and cleared on any load failure, and no verifier accepts a
+caller-supplied index. An arbitrary hash lookup is therefore never equivalent to anchored
+chain membership.
 
-**What is NOT established (anti-claims):**
-- **Most-work chain.** "Verified" means membership in a checkpoint-anchored linked chain, not that it is the most-work honest chain. Cumulative work is computed but not compared.
-- **Non-spend / current UTXO status.** SPV proves a transaction was mined; it cannot prove an output is unspent. Any "unspent" claim needs a source that indexes spends.
-- **Pre-checkpoint transactions.** The chain runs *forward* from the checkpoint (939,999 →). A transaction in a block **before** the checkpoint can never be chain-verified with this checkpoint — it is permanently isolation-only. A post-checkpoint transaction requires a contiguous `headers.bin` from 939,999 to its block.
+**Chain-inclusion states (never collapsed):**
+- verified - the block is in the loaded, checkpoint-anchored chain (green, "inclusion proven").
+- not in chain - a chain is loaded but this block is absent; fails closed (red).
+- isolation - no chain loaded; PoW proven in isolation, inclusion not claimed; a distinct amber
+  verdict, never the green of a chain-verified pass.
+- load failed - a supplied `headers.bin` failed to verify; fails closed, with no silent
+  downgrade to isolation.
 
-**Also not covered:** blockchain sync, multi-source discovery, protection of a compromised machine, constant-time guarantees, P2SH / multisig / testnet, and Bitcoin Script / value-conservation evaluation for unmined BEEF ancestors.
+## Limitations and anti-claims
 
----
+SPV inclusion is a narrow claim. This tool is deliberate about what it does not establish:
 
-## Design invariants
+- **Most-work chain.** "Verified" means membership in a checkpoint-anchored linked chain, not
+  that it is the most-work honest chain. Cumulative work is computed but not compared.
+- **Non-spend / current UTXO status.** SPV proves a transaction was mined; it cannot prove an
+  output is still unspent. Any "unspent" claim needs a source that indexes spends.
+- **Pre-checkpoint transactions.** The chain runs forward from block 939,999. A transaction in
+  a block before the checkpoint can never be chain-verified with this checkpoint; it is
+  permanently isolation-only. A post-checkpoint transaction needs a contiguous `headers.bin`
+  from 939,999 up to its block.
+- **Also out of scope:** blockchain sync, multi-source discovery, protecting a compromised
+  machine, constant-time guarantees, P2SH / multisig / testnet, and Bitcoin Script or
+  value-conservation evaluation for unmined BEEF ancestors.
 
-- **A verdict is a pure function of every input it depends on — and must be invalidated when any of them changes.** The envelope *and* the loaded header chain are both inputs. `explorer.html` locks a verdict for reproducibility; loading or changing the header chain invalidates that lock and recomputes, so a displayed verdict always matches the currently-loaded evidence. (This invariant came from a real bug: a locked isolation verdict once persisted on screen while a different chain was shown beside it.)
-- **Evidence identity vs verdict identity (intentional).** The Replay ID / Verification Hash is an *evidence* digest: it commits to every field a verdict path reads — `txid`, `rawTx`, `blockHeader`, `proof`, `bump`, `beef` / `atomicBeef` — plus the checkpoint identity, floor tolerance, and spec version, with absent distinguished from empty. It deliberately does **not** commit to which chain was loaded or to the inclusion outcome, so the same envelope evaluated against different chain states shares one Replay ID: equal evidence digest means *same inputs*, never *same verdict*. A separate result/verdict digest is deferred (see `VERIFICATION-SEMANTICS-SPEC.md` §K). The earlier `bump`-blind omission — two envelopes with identical `proof` but contradictory `bump` sharing an ID — was fixed in v2.4.0; that fix deliberately changes Replay ID values (pre-v2.4.0 IDs are not comparable to current ones).
-- **Fail closed.** Ambiguity, malformed input, a failed chain load, or a sub-floor header resolve to rejection or isolation — never to a false "verified."
-- **One implementation per rule.** Consensus math (PoW, target, floor, chain inclusion) lives in `headers.js` and is shared by every consumer, so tools cannot drift.
+Two design invariants underpin the above:
 
----
+- **A verdict is a pure function of every input it depends on, and is invalidated when any of
+  them changes.** The envelope and the loaded header chain are both inputs. `explorer.html`
+  locks a verdict for reproducibility; loading or changing the header chain invalidates that
+  lock and recomputes, so a displayed verdict always matches the currently-loaded evidence.
+  (This came from a real bug: a locked isolation verdict once persisted on screen while a
+  different chain was shown beside it.)
+- **Evidence identity is not verdict identity.** The Replay ID / Verification Hash is an
+  evidence digest: it commits to every field a verdict path reads (`txid`, `rawTx`,
+  `blockHeader`, `proof`, `bump`, `beef` / `atomicBeef`) plus the checkpoint identity, floor
+  tolerance, and spec version, with absent distinguished from empty. It deliberately does not
+  commit to which chain was loaded or to the inclusion outcome, so the same envelope evaluated
+  against different chain states shares one Replay ID. Equal evidence digest means same inputs,
+  never same verdict. A separate result/verdict digest is deferred; see the specification.
 
-## Verification & testing
+## Specification and conformance
 
-- `lib/bump.js`, `lib/beef.js` — module self-tests (`node lib/bump.js`, `node lib/beef.js`).
-- `test/test-audit-fixes.js` — 14 checks: checkpoint enforcement, raise-only floor, parser strictness, `verifyMined` contract.
-- `test/test-adversarial.js` — 35 checks: forged low-difficulty chain (real PoW grind) rejected, fingerprint canonicalization, checkpoint sanity, snapshot round-trip, Atomic-BEEF subject validation, and per-header floor policy (including end-to-end wiring that a sub-floor intermediate is unreachable via `chainInclusion`).
-- `tests.html` — 82 in-browser vectors. `tests-mainnet.html` — 31 real-mainnet tests.
-- `test/verify-real-envelope.js` — verifies a real mainnet envelope end-to-end.
+The verification semantics are written up normatively in `VERIFICATION-SEMANTICS-SPEC.md`:
+inputs and byte order; the cryptographic invariants (including nBits-to-target decoding and the
+little-endian PoW comparison); structural and policy invariants; the top-level verdicts and
+their precedence; the INDETERMINATE evaluation boundary; evidence-identity invariants; scope
+boundaries; and the chain-loading and anchoring algorithm that turns a raw `headers.bin` into a
+checkpoint-anchored index.
 
-The suites listed above pass from a clean checkout in Node (`bump.js`/`beef.js` self-tests, `test-audit-fixes.js`, `test-adversarial.js`) and in-browser for `tests.html`/`tests-mainnet.html`. `validate.js` checks `bump.js`/`beef.js` against the **BRC-74 published test vector** (an external anchor) and an **independent in-code-path Merkle oracle** (a second Merkle implementation in the same file — independent in logic, not in authorship) across 20 tree shapes, plus BEEF round-trip and tamper coverage; its per-run assertion total is not deterministic (see Test claims), so no fixed count is cited. No external-SDK differential harness exists. None of this substitutes for independent review (see License).
+Two spec-derived verifiers live outside the shipped tools and exist only to test whether the
+specification is precise enough to reimplement from:
 
----
+- `headers-node/` - a from-the-spec verifier plus `conformance.js`, a differential harness that
+  checks both the reference and the spec-derived implementation against the specification's
+  frozen corpus.
+- `headers-node-independent/` - a second, separately-written verifier (`verify.js` plus
+  `selftest.js`) built from the specification text and public standards, including
+  trust-boundary tests.
 
-## File hashes
+Latest results, reproduced from a clean checkout: the frozen-corpus verdicts agree across the
+reference and both implementations; the BRC-74 published vector and a real-mainnet fixture
+verify independently; the chain loader produces a byte-identical anchored index; and
+cross-binding attacks and unanchored-index injection are refused. Run them from the repo root:
+`node headers-node/conformance.js` and `FIX=. node headers-node-independent/selftest.js`.
 
-Verify before entering private keys. Regenerate from your own shipped files after any change — whitespace and line endings change the hash:
+**Honest ceiling.** The specification, the reference, and both spec-derived verifiers were
+written by the same party (with AI assistance). This is evidence that the specification is
+sufficient to reimplement *from* - which is necessary, but is not the same as an unrelated
+developer implementing it independently. A genuine third-party implementation, and a
+third-party security audit, remain the real external tests and are not claimed here.
+
+## Testing
+
+- `lib/bump.js`, `lib/beef.js` - module self-tests (`node lib/bump.js`, `node lib/beef.js`).
+- `test/test-audit-fixes.js` - 14 checks: checkpoint enforcement, raise-only floor, parser
+  strictness, the `verifyMined` contract.
+- `test/test-adversarial.js` - 46 checks: a forged low-difficulty chain (real PoW grind)
+  rejected, fingerprint canonicalization, checkpoint sanity, snapshot round-trip, Atomic-BEEF
+  subject validation, per-header floor policy (including end-to-end wiring that a sub-floor
+  intermediate is unreachable via chain membership), scope anti-claims, and UI-state checks.
+- `test/verify-real-envelope.js` - verifies a real mainnet envelope end-to-end.
+- `tests.html` (82 vectors) and `tests-mainnet.html` (31 real-mainnet tests) are in-browser
+  pages. In this repository they are exercised via a Node DOM-stub harness; a real-browser run
+  is straightforward but is the user's to confirm.
+- `validate.js` checks `bump.js` / `beef.js` against the BRC-74 published test vector (an
+  external anchor) and against an independent in-file Merkle oracle (a second Merkle
+  implementation in the same file - independent in logic, not in authorship) across 20 tree
+  shapes, plus BEEF round-trip and tamper coverage. Its per-run assertion total is
+  intentionally not deterministic, so no fixed count is cited.
+
+No external-SDK differential harness exists, and none of the above substitutes for independent
+review (see License).
+
+## Reproducibility and file hashes
+
+Every file is offline, dependency-free, and self-contained, so a verdict on one machine
+reproduces on another. Confirm you are running the audited bytes:
 
 ```
-# macOS/Linux
 shasum -a 256 lib/*.js *.html *.py
-# Windows PowerShell
-Get-FileHash -Algorithm SHA256 lib\*.js, *.html, *.py
 ```
 
 | File | SHA-256 |
@@ -126,40 +267,57 @@ Get-FileHash -Algorithm SHA256 lib\*.js, *.html, *.py
 | headers-generator.html | `44fa51df0cec8ebc6cb1d5a4e0927e95f9c03a3f1c7d01c9506174378b93a5e1` |
 | signer.html | `c4a85cffc27bd3721959d357e4c0fc272756089b37beca0b7c47792497338933` |
 | verifier.html | `98e6552c74aaec483485156795f090ede1b48ac68cf573776bcf3ed16c40c50d` |
-| explorer.html | `7762696d43cb7bee130737e5e44f66a2083896b14ba5f1aad818b3ed67ad96a1` |
+| explorer.html | `93d8886c2d872b2a357afbe53889a30c6001bc6e7707a315899be30532945e51` |
 | chain.html | `2f4b95ca84577eeb4085405f4a5cebe007042d602add8f66c4f93b139f2ade0e` |
 | tests.html | `79f51d56b03eee76c3fd56d5a3a351854e1f243a00c9a5fdf47eed754a574e44` |
 | tests-mainnet.html | `264b74b2c3a410a509e4bc524d080ee7098e83837b8953e10352bb20dd4592e8` |
 | verify_vectors.py | `6c015ddc2510139d886cc954c8b30cdd6c951aa93bc0a73cfb33602577d99be9` |
 
-The point of the table is that you confirm the bytes you run — not that you trust this list.
-
----
-
 ## Changelog (highlights)
 
 Full detail, with per-finding rationale and tests, is in `AUDIT-FIXES.md`.
 
-**v2.4.0 — semantic outcome contract (labels only; no decision or crypto changes)**
-- **Shared outcome vocabulary.** verifier/explorer/chain now emit one enum — `VERIFIED` / `VERIFIED-ISOLATION` / `FAILED` / `NOT-ESTABLISHED` / `POLICY-REJECTED` / `MALFORMED` / `INDETERMINATE` — via `classifyOutcome` (headers.js), replacing three ad-hoc encodings. Accept/reject decisions and all cryptographic computation are byte-identical.
-- **POLICY-REJECTED** distinguishes a below-floor (but otherwise valid) header from a cryptographic failure; **INDETERMINATE** distinguishes a verifier/dependency evaluation failure from invalid evidence. The evaluation boundary is semantic (`evalDep`/`EvaluationError`, keyed on `error.name`, realm-safe), not the JS error subclass. Advisories (e.g. low confirmations) moved to a separate axis that never changes the outcome.
-- **Fixed a security inversion:** an undefined/broken difficulty dependency was being reported as a difficulty-floor POLICY-REJECTED; it now correctly reports INDETERMINATE (the tool no longer claims the evidence violates policy when it could not evaluate policy).
-- **Evidence digest (Replay ID) — deliberate breaking change.** The digest now commits to `rawTx`/`bump`/`beef`/`atomicBeef` + checkpoint identity + tolerance + spec version, with absent≠empty framing, closing a `bump`-blind collision. **Pre-v2.4.0 Replay IDs are not comparable to current ones**; no backward compatibility is attempted. See `VERIFICATION-SEMANTICS-SPEC.md` §K.
+**Specification completion and conformance (no shipped-file or behaviour change)**
+- `VERIFICATION-SEMANTICS-SPEC.md` made self-sufficient for reimplementation: the cryptographic
+  section now defines SHA256d, header byte layout, nBits-to-target decoding, and the
+  little-endian PoW comparison; legacy-proof sibling byte order is pinned; missing / empty /
+  malformed header resolves to MALFORMED and the header-timestamp policy is normative; and the
+  chain-loading and anchoring algorithm is specified.
+- Two spec-derived verifiers (`headers-node/`, `headers-node-independent/`) reproduce the frozen
+  corpus, the BRC-74 vector, a real-mainnet fixture, and a byte-identical anchored chain index,
+  with zero divergences from the reference.
+- **Chain-index trust boundary made explicit.** Membership can establish a VERIFIED verdict only
+  from a checkpoint-anchored, loader-produced index. The shipped verifiers already enforce this
+  structurally; the parameterized reimplementation now enforces it explicitly and fails closed
+  to VERIFIED-ISOLATION for any unanchored index.
+- No shipped file changed in this work; the hash table above is unaffected.
 
-**v2.3.0 — review remediation and hardening**
-- **Checkpoint corrected and enforced.** Real block 939,999 / `0x18227b71` (was a placeholder whose `nBits` made the floor toothless). `verifyHeaderChain` fails closed on anchor mismatch; a `console.warn` fires if the floor is ever looser than difficulty-1.
-- **Difficulty floor: per-header enforcement**, raise-only dynamic floor; forging inclusion costs ≥ ~one floor-difficulty block.
-- **Isolation vs inclusion** rendered distinctly across all consumers; chain-load failure fails closed; verdicts recompute when the chain changes.
-- **Reproducibility identifiers canonicalized** (lowercased hex, verbatim proof position, length-prefixed framing) so identifier equality tracks verdict equality.
-- **Parsers hardened** (bounds-checked readers, strict hex, consume-all); `beef.verifyMined` requires a root callback; **Atomic-BEEF subject validated** per BRC-95.
-- **`chain.html`** consolidated onto shared consensus primitives; BigInt satoshi parsing; CVE-2012-2459 guard; single-envelope input.
-- **`snapshot.js`** signature path repaired; fixed-tip floor.
+**v2.4.0 - semantic outcome contract (labels only; no decision or crypto changes)**
+- One shared outcome vocabulary across verifier / explorer / chain, replacing three ad-hoc
+  encodings. Accept/reject decisions and all cryptographic computation are byte-identical.
+- POLICY-REJECTED distinguishes a below-floor but otherwise valid header from a cryptographic
+  failure; INDETERMINATE distinguishes a verifier or dependency evaluation failure from invalid
+  evidence, via a realm-safe error boundary (keyed on the error name, not the JS subclass).
+  Advisories moved to a separate axis that never changes the verdict.
+- Fixed a security inversion: an undefined or broken difficulty dependency was being reported as
+  a difficulty-floor POLICY-REJECTED; it now correctly reports INDETERMINATE.
+- Evidence digest (Replay ID) - deliberate breaking change. The digest now commits to
+  `rawTx` / `bump` / `beef` / `atomicBeef` plus checkpoint identity, tolerance, and spec version,
+  with absent distinguished from empty, closing a bump-blind collision. Pre-v2.4.0 Replay IDs
+  are not comparable to current ones.
 
-**v2.2.0** — BUMP / BEEF / Atomic-BEEF format interoperability (BRC-62 / 74 / 95, the formats `@bsv/sdk` uses); CVE-2012-2459 proof-safety guard; consensus math consolidated onto `headers.js`.
-**v2.0.2** — chain inclusion in verifier / explorer; fail-closed defaults.
-
----
+**v2.3.0 - review remediation and hardening**
+- Checkpoint corrected and enforced: real block 939,999 / `0x18227b71` (was a placeholder whose
+  nBits made the floor toothless). `verifyHeaderChain` fails closed on anchor mismatch, and a
+  warning fires if the floor is ever looser than difficulty-1.
+- Difficulty floor: per-header enforcement, raise-only dynamic floor; forging inclusion costs at
+  least about one floor-difficulty block.
 
 ## License
 
-MIT. **Use at your own risk.** This software handles cryptographic keys and financial transactions. **Not independently security-audited** — validation to date is internal differential testing (`validate.js`), the BRC-74 published test vector, and an internal audit that informed the v2.3.0 hardening. A targeted review that finds and fixes issues is not the same as, and is not a substitute for, a full independent third-party audit. Commission one before relying on this for high-value transactions.
+MIT. **Use at your own risk.** This software handles cryptographic keys and financial
+transactions. **Not independently security-audited** - validation to date is internal
+differential testing (`validate.js`), the BRC-74 published test vector, and an internal audit
+that informed the v2.3.0 hardening. A targeted review that finds and fixes issues is not the
+same as, and is not a substitute for, a full independent third-party audit. Commission one
+before relying on this for high-value transactions.

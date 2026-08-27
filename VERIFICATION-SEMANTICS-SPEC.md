@@ -371,13 +371,21 @@ the §F outcome enum and §G composition; the §H advisory axis; the §K evidenc
 set and byte-framing; and the §C/§D/§E invariants. It does **not** need most-work, spend
 status, or script evaluation.
 
-**Chain-loading is now specified (§O) and demonstrated.** The membership test consumes a
-`hashIndex` anchored at the checkpoint; §O gives the full `headers.bin` → anchored-index
-algorithm (format, fail-closed anchoring, per-header linkage + PoW, whole-chain floor).
-`headers-node.loadChain` implements it independently and reproduces the reference
-`verifyHeaderChain` exactly on the real fixture (identical index; matching rejections for
-anchor mismatch, chain break, truncation). The earlier "component gap" is closed — a
-from-scratch build now has every algorithm it needs from this document.
+**Chain-index trust boundary (verify() must consume only loader-produced chain state).**
+Chain membership may establish a `VERIFIED` inclusion verdict only when the index is the
+output of the checkpoint-anchored, predecessor-validated loader (§O). An arbitrary
+caller-built `Map(headerHash → height)` is **not** equivalent to a loader-produced index and
+must never establish trusted membership. Enforcement differs by surface, and both are
+conformant: the production explorer/verifier enforce it **structurally** — the index is a
+closure variable assigned only from `verifyHeaderChain` output and nulled on load failure, so
+no caller can inject one; `verify()` takes no index parameter. The parameterized
+reimplementation API (`headers-node-independent`) enforces it **explicitly** — `loadChain`
+registers its index in a module-private, unforgeable registry (a `WeakSet`, which reflection
+cannot observe or add to), and `verify()` refuses any unregistered index for membership
+(failing closed to `VERIFIED-ISOLATION` with a `chain-index-refused` advisory) unless the
+caller passes an explicit `trustIndex:true` assertion. A raw index therefore can never
+silently produce `VERIFIED`. Note the security-correct consequence: "not in chain → FAILED"
+is concludable only from a *trusted* chain; an untrusted index yields isolation, not FAILED.
 
 ---
 
