@@ -4,7 +4,7 @@
 // standards, never from the reference implementation.
 const fs = require('fs'), crypto = require('crypto');
 const V = require('./verify.js');
-const FIX = process.env.FIX || '/mnt/user-data/outputs/merkle-envelope-fixes';
+const FIX = process.env.FIX || require('path').join(__dirname,'..');
 const E = JSON.parse(fs.readFileSync(FIX + '/test/real-envelope.json', 'utf8'));
 const clone = o => JSON.parse(JSON.stringify(o));
 const strip = (o, k) => { const c = clone(o); delete c[k]; return c; };

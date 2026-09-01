@@ -3,12 +3,12 @@
  * INDEPENDENT reference implementation (Node's native crypto, standard Bitcoin
  * Merkle construction). Shares no code with the modules under test.
  *
- * Run: node validate.js
+ * Run: node test/validate.js   (from repo root)
  */
 'use strict';
 const crypto = require('crypto');
-const BUMP = require('./bump.js');
-const BEEF = require('./beef.js');
+const BUMP = require('../lib/bump.js');
+const BEEF = require('../lib/beef.js');
 
 // ---- independent primitives -------------------------------------------------
 const sha256d = (buf) =>

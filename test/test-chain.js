@@ -8,7 +8,7 @@ function loadStack() {
   ctx.Date = Date; ctx.console = console;
   vm.createContext(ctx);
   for (const f of ['crypto.js', 'encoding.js', 'headers.js'])
-    vm.runInContext(fs.readFileSync('/home/claude/' + f, 'utf8'), ctx);
+    vm.runInContext(fs.readFileSync(require('path').join(__dirname,'..','lib',f),'utf8'), ctx);
   return ctx;
 }
 function loadAudit(ctx, path) {
@@ -21,14 +21,14 @@ function loadAudit(ctx, path) {
 }
 
 // real envelope (from the audit report)
-const env = JSON.parse(fs.readFileSync('/home/claude/_env.json', 'utf8'));
+const env = JSON.parse(fs.readFileSync(require('path').join(__dirname,'real-envelope.json'),'utf8'));
 
 let pass = 0, fail = 0; const fails = [];
 const ok = (c, m) => { c ? pass++ : (fail++, fails.push(m)); };
 
 // ===================== AUDIT (explorer.html) =====================
 const ctx = loadStack();
-const verify = loadAudit(ctx, '/home/claude/explorer.html');
+const verify = loadAudit(ctx, require('path').join(__dirname,'..','explorer.html'));
 // Production-scope binding: explorer's verify() reads outer-scope `chainLoadFailed`
 // (set by the real headers-file handler; false when no load has failed). The extracted
 // fragment does not include that declaration, so the harness must supply it — mirroring
@@ -76,7 +76,7 @@ ok(rNo.hashes.verificationHash === rIn.hashes.verificationHash &&
 // Run the verifier's inline script in a vm with a stubbed DOM + stubbed
 // verifyHeaderChain, then drive the three states through the real handler.
 function runVerifier(chainMap, envelope) {
-  const html = fs.readFileSync('/home/claude/verifier.html', 'utf8');
+  const html = fs.readFileSync(require('path').join(__dirname,'..','verifier.html'),'utf8');
   const script = html.slice(html.indexOf('(function() {'), html.indexOf('})();', html.indexOf('(function() {')) + 5);
   const stack = loadStack();
   const els = {};

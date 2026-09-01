@@ -215,24 +215,44 @@ verify independently; the chain loader produces a byte-identical anchored index;
 cross-binding attacks and unanchored-index injection are refused. Run them from the repo root:
 `node headers-node/conformance.js` and `FIX=. node headers-node-independent/selftest.js`.
 
+**Honest ceiling.** The specification, the reference, and both spec-derived verifiers were
+written by the same party (with AI assistance). This is evidence that the specification is
+sufficient to reimplement *from* - which is necessary, but is not the same as an unrelated
+developer implementing it independently. A genuine third-party implementation, and a
+third-party security audit, remain the real external tests and are not claimed here.
+
 ## Testing
 
-- `lib/bump.js`, `lib/beef.js` - module self-tests (`node lib/bump.js`, `node lib/beef.js`).
-- `test/test-audit-fixes.js` - 14 checks: checkpoint enforcement, raise-only floor, parser
-  strictness, the `verifyMined` contract.
-- `test/test-adversarial.js` - 46 checks: a forged low-difficulty chain (real PoW grind)
-  rejected, fingerprint canonicalization, checkpoint sanity, snapshot round-trip, Atomic-BEEF
-  subject validation, per-header floor policy (including end-to-end wiring that a sub-floor
-  intermediate is unreachable via chain membership), scope anti-claims, and UI-state checks.
-- `test/verify-real-envelope.js` - verifies a real mainnet envelope end-to-end.
+Everything runs offline with no dependencies to install. From a clean checkout, one command
+runs the whole Node-side suite:
+
+```
+npm test
+```
+
+That executes, in order and each as its own process: the `lib/bump.js` and `lib/beef.js`
+self-tests; `test/test-audit-fixes.js` (14 checks: checkpoint enforcement, raise-only floor,
+parser strictness, the `verifyMined` contract); `test/test-adversarial.js` (46 checks: a
+forged low-difficulty chain rejected via a real PoW grind, fingerprint canonicalization,
+checkpoint sanity, snapshot round-trip, Atomic-BEEF subject validation, per-header floor
+policy including end-to-end wiring that a sub-floor intermediate is unreachable via chain
+membership, scope anti-claims, and UI-state checks); `test/validate.js` (independent
+differential validator, below); the DOM-stub integration harnesses `test/test-generator.js`,
+`test/test-integration.js`, and `test/test-chain.js`; and the two spec-derived conformance
+implementations `headers-node/conformance.js` and `headers-node-independent/selftest.js`. A
+non-zero exit or any reported failure fails the whole run. No `npm install`, no network, and
+no environment variables are required.
+
+- `test/validate.js` checks `lib/bump.js` / `lib/beef.js` against the BRC-74 published test
+  vector (an external anchor) and against an independent in-file Merkle oracle (a second
+  Merkle implementation in the same file - independent in logic, not in authorship) across 20
+  tree shapes, plus BEEF round-trip and tamper coverage. Its per-run assertion total is
+  intentionally not deterministic (unseeded randomness), so no fixed count is cited.
+- `test/verify-real-envelope.js` verifies a real mainnet envelope end-to-end; run it directly
+  (`node test/verify-real-envelope.js`).
 - `tests.html` (82 vectors) and `tests-mainnet.html` (31 real-mainnet tests) are in-browser
-  pages. In this repository they are exercised via a Node DOM-stub harness; a real-browser run
-  is straightforward but is the user's to confirm.
-- `validate.js` checks `bump.js` / `beef.js` against the BRC-74 published test vector (an
-  external anchor) and against an independent in-file Merkle oracle (a second Merkle
-  implementation in the same file - independent in logic, not in authorship) across 20 tree
-  shapes, plus BEEF round-trip and tamper coverage. Its per-run assertion total is
-  intentionally not deterministic, so no fixed count is cited.
+  pages, not part of `npm test`. In this repository they are exercised via a Node DOM-stub
+  harness; a real-browser run is straightforward but is the user's to confirm.
 
 No external-SDK differential harness exists, and none of the above substitutes for independent
 review (see License).
@@ -311,7 +331,7 @@ Full detail, with per-finding rationale and tests, is in `AUDIT-FIXES.md`.
 
 MIT. **Use at your own risk.** This software handles cryptographic keys and financial
 transactions. **Not independently security-audited** - validation to date is internal
-differential testing (`validate.js`), the BRC-74 published test vector, and an internal audit
+differential testing (`test/validate.js`), the BRC-74 published test vector, and an internal audit
 that informed the v2.3.0 hardening. A targeted review that finds and fixes issues is not the
 same as, and is not a substitute for, a full independent third-party audit. Commission one
 before relying on this for high-value transactions.

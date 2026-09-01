@@ -1,0 +1,14 @@
+{
+  "name": "merkle-envelope-tools",
+  "version": "2.4.0",
+  "description": "Deterministic, fully offline SPV verification and forensic audit tools for Bitcoin SV.",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test/run-all.js"
+  }
+}

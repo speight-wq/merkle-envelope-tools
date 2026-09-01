@@ -2,11 +2,11 @@
 const fs = require('fs');
 const vm = require('vm');
 const crypto = require('crypto');
-const BUMP = require('./bump.js');
-const BEEF = require('./beef.js');
+const BUMP = require('../lib/bump.js');
+const BEEF = require('../lib/beef.js');
 
 // ---- pull the ACTUAL emit helpers out of the edited generator.html ---------
-const gsrc = fs.readFileSync('./generator.html', 'utf8');
+const gsrc = fs.readFileSync(require('path').join(__dirname,'..','generator.html'), 'utf8');
 const a = gsrc.indexOf('function headerMerkleRootDisplay');
 const b = gsrc.indexOf('// Multi-Source API Configuration');
 if (a < 0 || b < 0) throw new Error('could not locate emit helpers in generator.html');
@@ -115,7 +115,7 @@ console.log('TEST 2  attachBump self-verify guard    : done');
   assert(!!envelope.bump, 'generator produced a bump field');
 
   // run the actual wired verifier inline script on this envelope
-  const vhtml = fs.readFileSync('./verifier.html', 'utf8');
+  const vhtml = fs.readFileSync(require('path').join(__dirname,'..','verifier.html'), 'utf8');
   const vscript = vhtml.slice(vhtml.indexOf('(function() {'), vhtml.indexOf('})();', vhtml.indexOf('(function() {')) + 5);
   const hash256 = (hex) => sha256d(Buffer.from(hex, 'hex'));
   const els = {};

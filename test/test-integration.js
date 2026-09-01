@@ -2,11 +2,11 @@
 const fs = require('fs');
 const vm = require('vm');
 const crypto = require('crypto');
-const BUMP = require('./bump.js');
-const BEEF = require('./beef.js');
+const BUMP = require('../lib/bump.js');
+const BEEF = require('../lib/beef.js');
 
 // --- extract the inline IIFE from the wired verifier.html --------------------
-const html = fs.readFileSync('./verifier.html', 'utf8');
+const html = fs.readFileSync(require('path').join(__dirname,'..','verifier.html'), 'utf8');
 const start = html.indexOf('(function() {');
 const end = html.indexOf('})();', start) + '})();'.length;
 const script = html.slice(start, end);
