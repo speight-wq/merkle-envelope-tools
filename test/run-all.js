@@ -28,7 +28,8 @@ const SUITES = [
   { name: 'test/test-integration.js',         cmd: 'test/test-integration.js' },
   { name: 'test/test-chain.js',               cmd: 'test/test-chain.js' },
   { name: 'headers-node/conformance.js',      cmd: 'headers-node/conformance.js' },
-  { name: 'headers-node-independent/selftest.js', cmd: 'headers-node-independent/selftest.js' }
+  { name: 'headers-node-independent/selftest.js', cmd: 'headers-node-independent/selftest.js' },
+  { name: 'test/fuzz.js (deterministic, seed 20260101, 20k iters)', cmd: 'test/fuzz.js', args: ['--seed', '20260101', '--iters', '20000'] }
 ];
 
 // A suite is a failure if the process exits non-zero OR its output reports a non-zero
@@ -43,7 +44,7 @@ const results = [];
 
 for (const suite of SUITES) {
   process.stdout.write('\n=== ' + suite.name + ' ===\n');
-  const r = spawnSync(process.execPath, [path.join(ROOT, suite.cmd)], {
+  const r = spawnSync(process.execPath, [path.join(ROOT, suite.cmd), ...(suite.args || [])], {
     cwd: ROOT,
     encoding: 'utf8'
   });

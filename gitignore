@@ -1,0 +1,40 @@
+# Merkle Envelope Tools — .gitignore
+#
+# This project is intentionally zero-dependency and fully offline. Almost everything
+# in the tree IS the deliverable and must stay tracked. This file ignores only runtime
+# output, sandbox scratch, and OS/editor junk.
+#
+# IMPORTANT: do NOT add broad patterns like *.json or *.bin — the test fixtures
+# test/real-envelope.json and test/headers-940000-to-940000.bin are required inputs
+# and must remain committed.
+
+# --- fuzzer runtime output (created only on a fuzz failure; reproduce via --seed/--replay) ---
+test/fuzz-failures/
+
+# --- sandbox / scratch fixtures that caused clean-checkout breakage before ---
+_env.json
+/tmp/
+
+# --- dependencies (project has none today; guard in case any are added later) ---
+node_modules/
+
+# --- logs and coverage ---
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+
+# --- OS junk ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# --- editor / IDE junk ---
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-workspace

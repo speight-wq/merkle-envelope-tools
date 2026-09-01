@@ -251,6 +251,35 @@ no environment variables are required.
 No external-SDK differential harness exists, and none of the above substitutes for independent
 review (see License).
 
+### Parser fuzzing
+
+`test/fuzz.js` is a deterministic, seed-logged fuzzer for the byte-level parsing surface -
+the one part of the system least exercised by curated vectors. It takes known-valid corpus
+items (the BRC-74 BUMP vector, the real envelope, the real `headers.bin`) and applies
+structured hostile mutations (truncation, varint/offset/count corruption, `nBits` exponent
+and sign-bit boundaries, header-count/length mismatch, byte flips) across five surfaces:
+BUMP, block-header/PoW, the `headers.bin` loader, a full envelope through the verifier, and
+BEEF. Each mutated input is checked against four invariants - no unexpected exception (A), no
+false acceptance without a holding txid->root->header binding (B), a typed outcome (C), and
+determinism (D) - and, where the independent reimplementation covers the same surface, the
+two are run differentially and any outcome-class disagreement is recorded, never hidden.
+
+At **seed 20260101, 100,000** deterministic structured mutations across those five surfaces
+produced **zero observed exceptions, false acceptances, typed-outcome violations, differential
+divergences, or non-determinism.** This is a bounded, reproducible result for exactly the
+mutations tested at that seed - not a claim that the parsers are free of defects. Reproduce it:
+
+```
+node test/fuzz.js --seed 20260101 --iters 100000     # the 100k run above
+npm test                                             # runs a bounded 20,000-iteration check at the same seed
+node test/fuzz.js --seed 20260101 --replay 4242      # re-run one iteration with its full record
+```
+
+The harness is self-checking: injecting a one-off error into the target math makes it report
+divergences and fail, so a clean run reflects the checks actually firing, not a silent
+no-op. `test/fuzz.js` is an observer - it imports the production parsers and the independent
+verifier but changes neither.
+
 ## Reproducibility and file hashes
 
 Every file is offline, dependency-free, and self-contained, so a verdict on one machine
