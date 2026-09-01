@@ -215,12 +215,6 @@ verify independently; the chain loader produces a byte-identical anchored index;
 cross-binding attacks and unanchored-index injection are refused. Run them from the repo root:
 `node headers-node/conformance.js` and `FIX=. node headers-node-independent/selftest.js`.
 
-**Honest ceiling.** The specification, the reference, and both spec-derived verifiers were
-written by the same party (with AI assistance). This is evidence that the specification is
-sufficient to reimplement *from* - which is necessary, but is not the same as an unrelated
-developer implementing it independently. A genuine third-party implementation, and a
-third-party security audit, remain the real external tests and are not claimed here.
-
 ## Testing
 
 Everything runs offline with no dependencies to install. From a clean checkout, one command
