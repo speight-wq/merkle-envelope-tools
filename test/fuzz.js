@@ -65,18 +65,41 @@ const sha256d = (b) => crypto.createHash('sha256').update(crypto.createHash('sha
 // ---- corpus (valid seeds; reuse existing fixtures) -----------------------------------
 const ENV = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/real-envelope.json'), 'utf8'));
 const HEADERS_BIN = fs.readFileSync(path.join(ROOT, 'test/headers-940000-to-940000.bin'));
+// ---- deterministic valid BEEF corpus: plain / multi(ancestor) / atomic(subject+ancestor) --
+function buildBeefCorpus() {
+  const out = [];
+  const S = (x) => String(x).toLowerCase();
+  const le = (n, b) => { const x = Buffer.alloc(b); let v = n; for (let i = 0; i < b; i++) { x[i] = v & 0xff; v = Math.floor(v / 256); } return x; };
+  const vi = (n) => n < 0xfd ? Buffer.from([n]) : Buffer.concat([Buffer.from([0xfd]), le(n, 2)]);
+  // a deterministic child tx spending (prevTxid:prevVout); fixed bytes, no randomness
+  const childTx = (prevTxid, prevVout, tag) => {
+    const p = [le(1, 4), vi(1)];
+    p.push(Buffer.from(prevTxid, 'hex').reverse(), le(prevVout, 4), vi(3), Buffer.from([tag, tag, tag]), le(0xffffffff, 4));
+    p.push(vi(1), le(1000, 8), vi(2), Buffer.from([0x51, 0x51]));
+    p.push(le(0, 4));
+    return Buffer.concat(p).toString('hex');
+  };
+  try {
+    const bump = BUMP.fromHex(ENV.bump);
+    const txid0 = BEEF.txidOf(ENV.rawTx);
+    const raw1 = childTx(txid0, 0, 0xab), txid1 = BEEF.txidOf(raw1);
+    const plain = S(BEEF.build({ bumps: [bump], transactions: [{ rawHex: ENV.rawTx, bumpIndex: 0 }] }));
+    const multi = S(BEEF.build({ bumps: [bump], transactions: [{ rawHex: ENV.rawTx, bumpIndex: 0 }, { rawHex: raw1, bumpIndex: null }] }));
+    const atomic = S(BEEF.wrapAtomic(multi, txid1));
+    out.push({ id: 'plain', hex: plain, atomic: false, subject: null });
+    out.push({ id: 'multi-ancestor', hex: multi, atomic: false, subject: null });
+    out.push({ id: 'atomic-subject-ancestor', hex: atomic, atomic: true, subject: txid1 });
+  } catch (_) { /* if the build shape differs, BEEF target simply has less corpus */ }
+  return out;
+}
+
 const CORPUS = {
   bump: [{ id: 'brc74-vector', hex: BUMP.VECTOR.hex, txid: BUMP.VECTOR.txids[0], root: BUMP.VECTOR.root },
          { id: 'real-envelope-bump', hex: ENV.bump, txid: ENV.txid }],
   header: [{ id: 'real-header', hex: ENV.blockHeader }],
   headersbin: [{ id: 'headers-940000', bytes: HEADERS_BIN }],
-  beef: []
+  beef: buildBeefCorpus()
 };
-// build one valid BEEF from the real envelope's mined tx, if the shape allows
-try {
-  const built = BEEF.build({ bumps: [BUMP.fromHex(ENV.bump)], transactions: [{ rawHex: ENV.rawTx, bumpIndex: 0 }] });
-  CORPUS.beef.push({ id: 'real-beef', hex: built.toLowerCase ? built.toLowerCase() : String(built) });
-} catch (_) { /* if BEEF.build shape differs, BEEF target simply has no corpus */ }
 
 // ---- mutation primitives on a byte buffer --------------------------------------------
 function mutateBytes(rng, buf) {
@@ -221,16 +244,87 @@ function finishBin(c, bytes, mutation, params, seed, iter) {
   return { rec, viol };
 }
 
+// Independent BRC-95 re-verification (the false-accept oracle). Given what BEEF.parse
+// ACCEPTED, recompute the three rules ourselves - shares no code with lib/beef.js's
+// validateAtomicSubject. Returns null if consistent, else the first violated rule.
+function independentAtomicViolation(parsed) {
+  if (parsed.atomicSubject == null) return null; // not atomic: nothing to check here
+  const txs = parsed.transactions || [];
+  const subject = parsed.atomicSubject;
+  const byId = {}; txs.forEach(t => { byId[t.txid] = t; });
+  if (!byId[subject]) return 'subject-not-present';
+  if (!txs.length || txs[txs.length - 1].txid !== subject) return 'subject-not-last';
+  // reachability: subject + transitive parents present in the container
+  const reach = {}; reach[subject] = true; const stack = [subject]; let steps = 0;
+  while (stack.length) {
+    if (++steps > 100000) return 'HANG-GUARD'; // bounded; cycles cannot inflate this
+    const cur = byId[stack.pop()]; if (!cur) continue;
+    (cur.inputs || []).forEach(inp => { const p = inp.prevTxid; if (byId[p] && !reach[p]) { reach[p] = true; stack.push(p); } });
+  }
+  for (const t of txs) if (!reach[t.txid]) return 'unrelated-tx-included';
+  return null;
+}
+
 function runBeef(rng, seed, iter) {
+  if (!CORPUS.beef.length) return { rec: { target: 'BEEF', note: 'no BEEF corpus' }, viol: [] };
   const c = pick(rng, CORPUS.beef);
-  const m = mutateHexString(rng, c.hex);
-  const rec = { target: 'BEEF', corpusId: c.id, mutation: m.op, params: m.detail, seed, iter, mutatedHex: m.hex.slice(0, 64) + '...' };
+  // Structured mutation selection. Some rebuild the atomic wrapper with a hostile subject
+  // (targeted BRC-95 attacks); the rest are byte/varint/framing mutations of the valid bytes.
+  const strat = pick(rng, ['bytes', 'bytes', 'trunc-boundary', 'varint', 'atomic-subject', 'atomic-marker', 'tx-region']);
+  let mutHex, mutation, params = {};
+  if (strat === 'atomic-subject' && c.atomic) {
+    // rewrap the underlying multi with a hostile subject: wrong (ancestor, not last), absent, or self
+    const kind = pick(rng, ['ancestor-not-last', 'absent', 'zero']);
+    const multi = CORPUS.beef.find(x => x.id === 'multi-ancestor');
+    let subj;
+    if (kind === 'ancestor-not-last') subj = BEEF.txidOf(ENV.rawTx); // tx0 is an ancestor, not last
+    else if (kind === 'zero') subj = '00'.repeat(32);
+    else subj = 'ab'.repeat(32);
+    try { mutHex = String(BEEF.wrapAtomic(multi.hex, subj)).toLowerCase(); } catch (_) { mutHex = c.hex; }
+    mutation = 'atomic-subject:' + kind; params = { kind, subj: subj.slice(0, 12) };
+  } else if (strat === 'atomic-marker' && c.atomic) {
+    const b = fromHex(c.hex); if (b.length > 4) b[randInt(rng, 4)] ^= 0xff; // corrupt 0x01010101
+    mutHex = toHex(b); mutation = 'atomic-marker-flip'; params = {};
+  } else if (strat === 'trunc-boundary') {
+    const b = fromHex(c.hex); const at = randInt(rng, b.length + 1); mutHex = toHex(b.subarray(0, at)); mutation = 'trunc'; params = { at };
+  } else if (strat === 'varint') {
+    const b = fromHex(c.hex); if (b.length) { const at = randInt(rng, b.length); b[at] = pick(rng, [0x00, 0x01, 0xfc, 0xfd, 0xfe, 0xff]); mutHex = toHex(b); } else mutHex = c.hex; mutation = 'varint-byte'; params = {};
+  } else if (strat === 'tx-region') {
+    const b = fromHex(c.hex); if (b.length > 40) { const at = 40 + randInt(rng, b.length - 40); b[at] ^= (1 << randInt(rng, 8)); mutHex = toHex(b); } else mutHex = c.hex; mutation = 'tx-byte-flip'; params = { };
+  } else {
+    const mm = mutateBytes(rng, fromHex(c.hex)); mutHex = toHex(mm.bytes); mutation = 'bytes:' + mm.op; params = mm.detail;
+  }
+
+  const rec = { target: 'BEEF', corpusId: c.id, mutation, params, seed, iter, mutatedHexHead: mutHex.slice(0, 48) };
   const viol = [];
-  try { BEEF.parse(m.hex); } // safe typed rejection expected; accept is fine if it re-parses
-  catch (e) { if (classifyThrow(e) === 'NON-ERROR-THROW') viol.push('A: BEEF non-Error throw'); }
-  rec.note = 'BEEF checked for safe rejection only (independent impl does not implement BEEF)';
+  let parsed = null, threw = null;
+  try { parsed = BEEF.parse(mutHex); }
+  catch (e) { threw = classifyThrow(e); if (threw === 'NON-ERROR-THROW') viol.push('A: BEEF non-Error throw'); }
+
+  if (parsed) {
+    // Invariant B (structural false-accept): if parse ACCEPTED an atomic BEEF, the BRC-95
+    // rules must independently hold. Acceptance while a rule is violated is a false accept.
+    const v = independentAtomicViolation(parsed);
+    if (v === 'HANG-GUARD') viol.push('A: independent atomic walk hit step guard (possible pathological structure)');
+    else if (v) viol.push('B: BEEF.parse ACCEPTED an atomic BEEF that violates BRC-95 (' + v + ')');
+    // verifyMined false-accept: any tx reported proven must genuinely have its txid in the
+    // referenced bump level-0 (independent recheck; no root-trust needed for this check).
+    try {
+      const rep = BEEF.verifyMined(parsed, BEEF.verifyMined.UNSAFE_SKIP_ROOT_CHECK);
+      for (const p of rep.proven) {
+        const bump = parsed.bumps[parsed.transactions.find(t => t.txid === p.txid).bumpIndex];
+        const present = bump && bump.path && bump.path[0] && bump.path[0].some(l => l.hash === p.txid);
+        if (!present) viol.push('B: verifyMined marked ' + p.txid.slice(0, 12) + ' proven but txid absent from its BUMP level-0');
+      }
+    } catch (e) { if (classifyThrow(e) === 'NON-ERROR-THROW') viol.push('A: verifyMined non-Error throw'); }
+    rec.result = 'parsed(' + parsed.transactions.length + 'tx,atomic=' + (parsed.atomicSubject ? 'y' : 'n') + ')';
+  } else {
+    rec.result = 'reject:' + threw;
+  }
+  rec.note = 'BEEF not differentially covered by an independent BEEF parser; oracle = independent BRC-95 re-verification + verifyMined recheck';
   return { rec, viol };
 }
+
 
 // ---- envelope-level Invariant B/C via the independent verify() ------------------------
 function runEnvelope(rng, seed, iter) {
