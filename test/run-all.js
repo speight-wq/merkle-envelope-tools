@@ -26,10 +26,14 @@ const SUITES = [
   { name: 'test/validate.js (independent)',   cmd: 'test/validate.js' },
   { name: 'test/test-generator.js',           cmd: 'test/test-generator.js' },
   { name: 'test/test-integration.js',         cmd: 'test/test-integration.js' },
+  { name: 'test/test-explorer-malformed.js',  cmd: 'test/test-explorer-malformed.js' },
+  { name: 'test/test-verifier-malformed.js',  cmd: 'test/test-verifier-malformed.js' },
   { name: 'test/test-chain.js',               cmd: 'test/test-chain.js' },
   { name: 'headers-node/conformance.js',      cmd: 'headers-node/conformance.js' },
   { name: 'headers-node-independent/selftest.js', cmd: 'headers-node-independent/selftest.js' },
-  { name: 'test/fuzz.js (deterministic, seed 20260101, 20k iters)', cmd: 'test/fuzz.js', args: ['--seed', '20260101', '--iters', '20000'] }
+  { name: 'test/fuzz.js (deterministic, seed 20260101, 20k iters)', cmd: 'test/fuzz.js', args: ['--seed', '20260101', '--iters', '20000'] },
+  { name: 'test/fuzz-browser.js (shipped explorer verify(), seed 20260301, 20k iters)', cmd: 'test/fuzz-browser.js', args: ['--seed', '20260301', '--iters', '20000'] },
+  { name: 'test/fuzz-verifier-browser.js (shipped verifier verify(), seed 20260401, 20k iters)', cmd: 'test/fuzz-verifier-browser.js', args: ['--seed', '20260401', '--iters', '20000'] }
 ];
 
 // A suite is a failure if the process exits non-zero OR its output reports a non-zero

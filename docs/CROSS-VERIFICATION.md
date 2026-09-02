@@ -286,43 +286,43 @@ print("✓ Merkle proof valid")
 
 ---
 
-## Checkpoint Verification (Block 935,000)
+## Checkpoint Verification (Block 939,999)
 
 **Claimed Values:**
 ```
-Height:  935,000
-Hash:    000000000000000014dd029be96be37223e04f66f379dc4eed0f071a73c1f7aa
-nBits:   0x1d2a0000
+Height:  939,999
+Hash:    00000000000000000e7aea9b454b4acc945e6ae5883ca7254809e538bb54ef12
+nBits:   0x18227b71
 ```
 
 ### Step 1: Verify block exists at height
 
 **WhatsOnChain:**
 ```
-https://whatsonchain.com/block-height/935000
+https://whatsonchain.com/block-height/939999
 ```
 
 ### Step 2: Verify block hash
 
 **API:**
 ```bash
-curl https://api.whatsonchain.com/v1/bsv/main/block/height/935000
+curl https://api.whatsonchain.com/v1/bsv/main/block/height/939999
 ```
 
-**Verify hash matches:** `000000000000000014dd029be96be37223e04f66f379dc4eed0f071a73c1f7aa`
+**Verify hash matches:** `00000000000000000e7aea9b454b4acc945e6ae5883ca7254809e538bb54ef12`
 
 ### Step 3: Compute target from nBits
 
 ```python
-nbits = 0x1d2a0000
-exponent = 0x1d  # 29
-mantissa = 0x2a0000
+nbits = 0x18227b71
+exponent = 0x18  # 24
+mantissa = 0x227b71
 
 target = mantissa << (8 * (exponent - 3))
 print(f"Target: {target:064x}")
 
 # Verify block hash is below target
-block_hash = "000000000000000014dd029be96be37223e04f66f379dc4eed0f071a73c1f7aa"
+block_hash = "00000000000000000e7aea9b454b4acc945e6ae5883ca7254809e538bb54ef12"
 hash_int = int(block_hash, 16)
 print(f"Hash < Target: {hash_int < target}")
 ```
@@ -337,7 +337,7 @@ Run this Python script to verify all vectors locally:
 python3 verify_vectors.py
 ```
 
-The script performs 18 independent checks:
+The script performs 23 independent checks:
 - TXID computation from raw transactions
 - Block hash computation from headers
 - Proof-of-work verification
@@ -399,7 +399,7 @@ bitcoin-cli gettxoutproof '["f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338
 | Vector 1 | 0 (Genesis) | Protocol spec | Any node | SHA256d rawTx → TXID |
 | Vector 2 | 1 | WhatsOnChain | Blockchair | SHA256d header → hash, chain linkage |
 | Vector 3 | 170 | Historical record | Guinness | Merkle proof, PoW |
-| Checkpoint | 935,000 | WhatsOnChain | BSV node | nBits → target → PoW |
+| Checkpoint | 939,999 | WhatsOnChain | BSV node | nBits -> target -> PoW |
 
 **Trust model:** If WhatsOnChain, Blockchair, your local computation, and (optionally) a BSV node all agree, the data is correct.
 
@@ -415,7 +415,7 @@ python3 verify_vectors.py
 
 # Expected output:
 # ======================================================================
-# ✓ ALL 18 TESTS PASSED
+# ALL 23 TESTS PASSED
 # ======================================================================
 ```
 

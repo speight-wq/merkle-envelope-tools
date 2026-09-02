@@ -371,12 +371,12 @@
       const invalidPos = positions.filter(p => p !== 'L' && p !== 'R');
       result.checks.push({ name: 'Position Flags', value: invalidPos.length === 0 ? 'All valid' : 'INVALID', pass: invalidPos.length === 0 });
       if (invalidPos.length > 0) { result.valid = false; result.anomalies.push('Invalid position flag'); }
-      const invalidLen = proof.filter(p => (p.hash || '').length !== 64);
+      const invalidLen = proof.filter(p => !/^[0-9a-fA-F]{64}$/.test(p.hash || ''));
       result.checks.push({ name: 'Hash Lengths', value: invalidLen.length === 0 ? '64 hex chars' : invalidLen.length + ' invalid', pass: invalidLen.length === 0 });
-      if (invalidLen.length > 0) { result.valid = false; result.anomalies.push('Invalid hash length'); }
-      const txidValid = (envelope.txid || '').length === 64;
+      if (invalidLen.length > 0) { result.valid = false; result.anomalies.push('Invalid hash (must be 64 hex chars)'); }
+      const txidValid = /^[0-9a-fA-F]{64}$/.test(envelope.txid || '');
       result.checks.push({ name: 'TXID Length', value: txidValid ? '64 hex' : 'INVALID', pass: txidValid });
-      if (!txidValid) { result.valid = false; result.anomalies.push('Invalid TXID length'); }
+      if (!txidValid) { result.valid = false; result.anomalies.push('Invalid TXID (must be 64 hex chars)'); }
       const headerValid = (envelope.blockHeader || '').length === 160;
       result.checks.push({ name: 'Header Length', value: headerValid ? '160 hex' : 'INVALID', pass: headerValid });
       if (!headerValid) { result.valid = false; result.anomalies.push('Invalid header length'); }
@@ -389,7 +389,7 @@
       const r = {
         timestamp: new Date().toISOString(),
         input: { txid: envelope.txid, blockHeader: envelope.blockHeader, proof: envelope.proof || [], blockHeight: envelope.blockHeight },
-        txid: { display: envelope.txid.toLowerCase(), internal: reverseHex(envelope.txid.toLowerCase()) },
+        txid: { display: (envelope.txid || '').toLowerCase(), internal: null },
         header: null, steps: [],
         metadata: { proofDepth: 0, totalBytesProcessed: 0 },
         result: { valid: false, outcome: null, failedAt: null, reason: null, likelyCause: null },
@@ -436,6 +436,9 @@
         r.timing.totalMs = performance.now() - startTime;
         return r;
       }
+      // txid is now validated as 64 hex chars by validateProofStructure; decode it here (after
+      // the MALFORMED early-return) so an invalid-hex txid can never reach reverseHex/the fold.
+      r.txid.internal = reverseHex(r.txid.display);
       
       const hdr = envelope.blockHeader;
       try {

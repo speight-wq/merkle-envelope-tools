@@ -201,7 +201,8 @@
           allPassed = false; if (isEvalErr(e)) evaluationError = true; else malformed = true;
         }
       } else {
-        checks.push({ pass: null, text: 'No block header (unconfirmed?)' });
+        checks.push({ pass: false, text: 'Missing block header (required)' });
+        allPassed = false; malformed = true;
       }
 
       // Merkle proof verification.
@@ -272,7 +273,8 @@
           allPassed = false; cryptoFailed = true;
         }
       } else if (envelope.blockHeader) {
-        checks.push({ pass: null, text: 'No Merkle proof' });
+        checks.push({ pass: false, text: 'No Merkle proof supplied — cannot establish inclusion' });
+        allPassed = false; cryptoFailed = true;
       }
 
       // Chain inclusion (optional) via the shared headers.js helper.
