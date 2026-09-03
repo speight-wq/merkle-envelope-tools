@@ -83,7 +83,8 @@ spec-derived verifiers that reimplement the semantics from the specification and
 reference with zero divergences, plus an independent Node-crypto Merkle oracle. Beyond that, the
 byte-level parsers have been exercised by a deterministic, seed/replay **500,000-mutation
 campaign** across BUMP, block headers / PoW, `headers.bin`, envelopes, and BEEF / Atomic-BEEF,
-and the shipped `explorer.html` and `verifier.html` verification paths are fuzzed with negative
+and the shipped `explorer.html`, `verifier.html`, and `chain.html` verification paths are fuzzed
+with negative
 controls that prove the harness can detect a planted false acceptance. The parser and
 shipped-path fuzzers found and helped fix real production defects; findings and rationale are in
 `AUDIT-FIXES.md`.
