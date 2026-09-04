@@ -89,6 +89,18 @@ controls that prove the harness can detect a planted false acceptance. The parse
 shipped-path fuzzers found and helped fix real production defects; findings and rationale are in
 `AUDIT-FIXES.md`.
 
+### Independent implementation agreement
+
+BEEF semantics are independently reproduced by a from-scratch interpreter that shares no BEEF
+parsing, transaction, encoding, or cryptographic implementation with the production verifier
+(its only dependency is Node's SHA-256). Differential testing across deterministic hostile
+inputs and valid multi-ancestor and Atomic-BEEF corpora found no structural or cryptographic
+divergence: the two implementations agree on structure, transaction identity, ancestry, BRC-95
+subject selection, and independently reconstructed Merkle roots. Bidirectional negative controls
+demonstrate that the differential harness detects faults introduced independently into either
+implementation. The same method underlies the two spec-derived header verifiers, which
+reproduce the reference outcomes with zero divergences.
+
 This is testing evidence, not a security proof: the project has not had an independent
 third-party security audit, and the specification and both spec-derived verifiers share one
 author. Confirm the checkpoint on multiple explorers, and commission an audit, before relying on

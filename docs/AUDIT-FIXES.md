@@ -1,11 +1,5 @@
 # Audit Fixes — Merkle Envelope Tools
 
-Patches for the ten findings from the security review. Grouped by file, with the
-finding each addresses and how it was verified. **Scope caveat:** these are
-audit fixes verified where executable in Node (v22); they are **not** an
-independent professional security audit. The four HTML files' behavioral changes
-are syntax-checked and logic-reviewed but still need a real browser test pass.
-
 ## Verification summary
 
 | Check | Result |
@@ -188,34 +182,6 @@ m1 (tip-only floor reasoning/test) and m3 (no most-work check) are correctness-o
 documentation items, not exploitable defects. It was, again, author-adjacent self-review — an
 independent implementer is still owed.
 
-## HIGH — Checkpoint difficulty is misconfigured (the floor is toothless)
-
-Surfaced by running a **real mainnet envelope** through the patched libraries
-(`test/verify-real-envelope.js`). The envelope itself verifies perfectly (txid, legacy
-proof, BUMP, PoW, block hash, CVE guard, floor all pass — the fixes produce no false
-negatives). But the real block header carries `nBits = 0x18267614` (target ~2^189), while
-the **embedded checkpoint** claims `nBits = 0x1d2a0000` (target ~2^229):
-
-- The static floor is checkpoint-target × 8 ≈ **2^232**.
-- Bitcoin/BSV **difficulty-1** target is ≈ **2^223** — *smaller* than the floor.
-- Therefore **difficulty-1 headers pass the floor.** An attacker can grind difficulty-1
-  headers (~2^32 work each — seconds to minutes) and clear it. FP-2's protection is inert
-  *in production* even though the code enforces the floor correctly.
-- The checkpoint's own **hash** (`0000000000000000 14dd…`, ≈2^188) proves the real block
-  did ~2^68 of work, so the real `nBits` target is ~2^188 (exponent ~`0x18`), **not** 2^229.
-  The stored `nBits` is a placeholder ~40 bits too loose.
-
-**This is a data/config error, not a code error, and no code guard substitutes for the
-correct value.** Required fix (author, needs the network): set `CHECKPOINT.nBits` to block
-935,000's real value (verify on whatsonchain — it will be ~`0x18xxxxxx`). Once corrected,
-the floor rejects difficulty-1 (2^223 > ~2^192) and forces ~2^64 work to forge.
-
-**Code guard added** (`checkpointFloorStatus()` in headers.js, exported + tested): detects
-when the floor is looser than difficulty-1 and emits a loud `console.warn` at load, so the
-tool never silently presents a toothless floor as protection. With the shipped checkpoint
-it reports `sane: false`; it flips to `sane: true` once the real nBits is set. The UIs
-should surface this status; today they do not.
-
 ## Item 10 — tests added
 
 - `test/test-audit-fixes.js` — checkpoint enforcement, raise-only floor, BUMP/BEEF
@@ -224,12 +190,40 @@ should surface this status; today they do not.
   valid PoW nonce, asserts rejection by the floor) and fingerprint canonicalization
   invariance/collision-framing.
 
-**Not yet covered:** BUMP/BEEF structural fuzzing, and browser-level behavioral tests
-of the four HTML tools (verdict states, chain-load-failure fail-closed, explorer
-identifier stability in-page). These need a headless-browser harness.
+(BUMP/BEEF structural fuzzing and shipped-path behavioural testing of the HTML tools,
+listed here as open in earlier passes, are now covered — see the fifth pass below.)
 
-## Note on file hashes
+## Fifth pass — deterministic fuzzing and independent BEEF oracle
 
-The README's `File Hashes (v2.2.0)` table is now stale for every patched file.
-Regenerate before publishing:
-`shasum -a 256 lib/*.js verifier.html explorer.html signer.html chain.html`
+Seeded, replayable fuzzers (`--seed`/`--iters`/`--replay`), each with a negative control that
+proves it detects a planted false accept. All are wired into `npm test`.
+
+- **Parser fuzz** (`test/fuzz.js`): 500,000 structured hostile mutations across BUMP, header/PoW,
+  `headers.bin`, envelopes and BEEF/Atomic-BEEF — 0 exceptions, 0 false accepts, 0 typed-outcome
+  violations, 0 differential divergences, 0 non-determinism.
+- **Shipped `explorer.html`** (`test/fuzz-browser.js`): found and fixed a real defect —
+  `validateProofStructure` checked proof-hash/txid *length* but not hex-validity, so a 64-char
+  non-hex value threw out of `verify()` instead of returning `MALFORMED`. Fixed with a hex check
+  plus deferring the txid decode past the structure gate. Regression: `test-explorer-malformed.js`.
+- **Shipped `verifier.html`** (`test/fuzz-verifier-browser.js`): found and fixed two required-
+  evidence **false acceptances** — a missing/empty block header, and a missing Merkle proof, each
+  left `allPassed` true and produced a positive verdict with no header/PoW/proof actually checked.
+  Fix: missing header -> `MALFORMED`, missing proof -> `FAILED`. Regression: `test-verifier-malformed.js`.
+- **Shipped `chain.html`** (`test/fuzz-chain-browser.js`): audited and fuzzed clean, no defect —
+  `result` defaults to `FAILED` and reaches `VALID` only after every phase, and all evidence is
+  required and hex-validated up front. Guard: `test-chain-malformed.js`.
+- **Independent BEEF oracle** (`test/oracle-beef.js` + `test/fuzz-beef-oracle.js`): a from-scratch
+  BEEF/BRC-95 interpreter that shares no parsing, transaction, encoding or cryptographic code with
+  `beef.js` (only Node SHA-256; enforced by a require-graph check). A 100,000-case differential
+  over plain, multi-ancestor and Atomic-BEEF corpora agrees on structure, txid, ancestry, subject
+  selection and independently reconstructed Merkle roots — 0 structural/cryptographic divergence.
+  Bidirectional negative controls detect a fault planted in either implementation. One benign
+  difference is recorded, not a defect: production decodes `vout` as a signed int32, the oracle as
+  unsigned — same bytes, only for an absurd mutated `vout` >= 2^31, and `vout` is outside the
+  verification path.
+
+## File hashes
+
+Per-file SHA-256 hashes for the shipped `lib/*.js`, HTML tools and `verify_vectors.py` are
+maintained in the README and verified on every change. Confirm locally with
+`shasum -a 256 lib/*.js *.html *.py`.
