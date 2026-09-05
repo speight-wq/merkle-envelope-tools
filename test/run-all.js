@@ -36,7 +36,8 @@ const SUITES = [
   { name: 'test/fuzz-browser.js (shipped explorer verify(), seed 20260301, 20k iters)', cmd: 'test/fuzz-browser.js', args: ['--seed', '20260301', '--iters', '20000'] },
   { name: 'test/fuzz-verifier-browser.js (shipped verifier verify(), seed 20260401, 20k iters)', cmd: 'test/fuzz-verifier-browser.js', args: ['--seed', '20260401', '--iters', '20000'] },
   { name: 'test/fuzz-chain-browser.js (shipped chain verify(), seed 20260501, 20k iters)', cmd: 'test/fuzz-chain-browser.js', args: ['--seed', '20260501', '--iters', '20000'] },
-  { name: 'test/fuzz-beef-oracle.js (BEEF lib vs independent oracle, seed 20260601, 20k iters)', cmd: 'test/fuzz-beef-oracle.js', args: ['--seed', '20260601', '--iters', '20000'] }
+  { name: 'test/fuzz-beef-oracle.js (BEEF lib vs independent oracle, seed 20260601, 20k iters)', cmd: 'test/fuzz-beef-oracle.js', args: ['--seed', '20260601', '--iters', '20000'] },
+  { name: 'test/interop-beef-sdk.js (3-way BEEF conformance; skips if @bsv/sdk absent)', cmd: 'test/interop-beef-sdk.js' }
 ];
 
 // A suite is a failure if the process exits non-zero OR its output reports a non-zero

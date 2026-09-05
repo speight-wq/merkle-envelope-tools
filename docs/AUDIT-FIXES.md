@@ -1,5 +1,11 @@
 # Audit Fixes — Merkle Envelope Tools
 
+Patches for the ten findings from the security review. Grouped by file, with the
+finding each addresses and how it was verified. **Scope caveat:** these are
+audit fixes verified where executable in Node (v22); they are **not** an
+independent professional security audit. The four HTML files' behavioral changes
+are syntax-checked and logic-reviewed but still need a real browser test pass.
+
 ## Verification summary
 
 | Check | Result |
@@ -221,6 +227,20 @@ proves it detects a planted false accept. All are wired into `npm test`.
   difference is recorded, not a defect: production decodes `vout` as a signed int32, the oracle as
   unsigned — same bytes, only for an absurd mutated `vout` >= 2^31, and `vout` is outside the
   verification path.
+
+- **Third-implementation conformance** (`test/interop-beef-sdk.js`): a three-way harness
+  (production / independent oracle / third-party `@bsv/sdk`) that feeds all three the same raw
+  BEEF bytes and compares normalized structure, txid, ancestry, subject and Merkle root. This
+  repository is intentionally zero-dependency, so `@bsv/sdk` is not installed and the SDK
+  dimension is reported *unavailable* rather than approximated; the harness loads the SDK
+  through a guarded, feature-detected require and runs the real three-way comparison only when a
+  developer installs it. A machinery self-check runs unconditionally (a planted production-vs-
+  oracle disagreement must be flagged), proving the comparator detects disagreement even with
+  the SDK absent. To run the third-party comparison in a dev environment (keeps the shipped repo
+  zero-dependency): `npm install --no-save @bsv/sdk` then `node test/interop-beef-sdk.js`.
+
+**Standing caveat, unchanged:** all of the above is author-adjacent self-review. An independent
+third-party implementation and a professional security audit remain the strongest external tests.
 
 ## File hashes
 

@@ -99,7 +99,10 @@ divergence: the two implementations agree on structure, transaction identity, an
 subject selection, and independently reconstructed Merkle roots. Bidirectional negative controls
 demonstrate that the differential harness detects faults introduced independently into either
 implementation. The same method underlies the two spec-derived header verifiers, which
-reproduce the reference outcomes with zero divergences.
+reproduce the reference outcomes with zero divergences. A three-way conformance harness against
+a third, external implementation (`@bsv/sdk`) is included; it runs when that SDK is installed in
+a dev environment and otherwise reports that dimension as unavailable rather than approximating
+it (this repository ships zero-dependency).
 
 This is testing evidence, not a security proof: the project has not had an independent
 third-party security audit, and the specification and both spec-derived verifiers share one
