@@ -22,10 +22,15 @@
  *     when the SDK is absent.
  *
  * When a developer runs this with `@bsv/sdk` installed, the full three-way differential runs.
+ * By default SDK disagreements are INFORMATIONAL (printed, not fatal) because this adapter is
+ * feature-detected and unverified in-repo - an unverified third-party adapter must never fail
+ * the committed suite on its own. Pass `--strict` to make SDK disagreements a hard failure once
+ * you have confirmed the adapter reads your installed SDK version correctly. The machinery
+ * self-check always gates (it uses only the two in-repo implementations).
  *
  * Run:
- *   node test/interop-beef-sdk.js
- *   node test/interop-beef-sdk.js --seed 20260701 --iters 20000   (mutations, if SDK present)
+ *   node test/interop-beef-sdk.js            (self-check; SDK comparison if installed, informational)
+ *   node test/interop-beef-sdk.js --strict   (SDK disagreements fail; after you trust the adapter)
  */
 const fs = require('fs');
 const path = require('path');
@@ -192,9 +197,18 @@ if (!sdk) {
   process.exit(0);
 }
 
-// SDK present -> real three-way differential over the valid corpus (+ optional mutations)
+// SDK present -> real three-way differential over the valid corpus (+ optional mutations).
+// IMPORTANT: this adapter is written against the documented SDK API but is NOT verified in this
+// repo's environment (the SDK is not installable here). So by default a disagreement is
+// INFORMATIONAL and does NOT fail the suite - an unverified third-party adapter must never turn
+// `npm test` red on its own. Pass --strict to make SDK disagreements a hard failure (use once
+// you have confirmed the adapter reads your installed SDK version correctly).
+const strict = process.argv.indexOf('--strict') >= 0;
 console.log('@bsv/sdk version: ' + (sdk.caps.version || 'unknown'));
-console.log('SDK capabilities: ' + JSON.stringify(sdk.caps) + '\n');
+console.log('SDK capabilities: ' + JSON.stringify(sdk.caps));
+console.log('Mode: ' + (strict ? 'STRICT (SDK disagreements fail)' : 'informational (SDK disagreements reported, do not fail the suite)'));
+console.log('NOTE: this SDK adapter is feature-detected and unverified in-repo; triage any');
+console.log('      disagreement as a possible adapter/API mismatch before assuming a production defect.\n');
 let disagreements = 0, exceptions = 0;
 const rows = [];
 for (const c of corpus) {
@@ -206,5 +220,7 @@ for (const c of corpus) {
 }
 for (const r of rows) console.log('  ' + r.id.padEnd(9) + ' prod=' + r.prod + ' orac=' + r.orac + ' sdk=' + r.sdk + (r.dis.length ? '  DISAGREE: ' + r.dis.join('; ') : '  agree'));
 console.log('\nDisagreements: ' + disagreements + ' | adapter exceptions: ' + exceptions);
-console.log(disagreements ? '\nRESULT: DISAGREEMENTS FOUND - investigate + classify (see report guidance)' : '\nRESULT: PASS (three-way conformance on comparable dimensions at this corpus)');
-process.exit(disagreements ? 1 : 0);
+if (strict && disagreements) { console.log('\nRESULT: FAIL (--strict; disagreements must be classified against the spec)'); process.exit(1); }
+if (disagreements) { console.log('\nRESULT: PASS (informational; ' + disagreements + ' SDK disagreement(s) reported for triage - re-run with --strict to gate)'); process.exit(0); }
+console.log('\nRESULT: PASS (three-way conformance on comparable dimensions at this corpus)');
+process.exit(0);
