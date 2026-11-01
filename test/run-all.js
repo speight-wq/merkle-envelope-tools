@@ -26,6 +26,7 @@ const SUITES = [
   { name: 'test/validate.js (independent)',   cmd: 'test/validate.js' },
   { name: 'test/test-generator.js',           cmd: 'test/test-generator.js' },
   { name: 'test/test-integration.js',         cmd: 'test/test-integration.js' },
+  { name: 'test/test-signer-cleanup.js (F-1 key-state cleanup)', cmd: 'test/test-signer-cleanup.js' },
   { name: 'test/test-explorer-malformed.js',  cmd: 'test/test-explorer-malformed.js' },
   { name: 'test/test-verifier-malformed.js',  cmd: 'test/test-verifier-malformed.js' },
   { name: 'test/test-chain-malformed.js',     cmd: 'test/test-chain-malformed.js' },

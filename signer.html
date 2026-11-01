@@ -389,6 +389,32 @@
     let chainLoadFailed = false;
     let pendingTx = null;
 
+    /**
+     * Clear every reachable application reference to key material.
+     *
+     * Scope of the guarantee: this removes the references this application holds
+     * (the pendingTx state object and the DOM input value) on all relevant exit
+     * paths. It is NOT secure memory erasure — `privateKey` is a JavaScript string
+     * and may remain interned beyond our control; see docs/SIDE-CHANNELS.md §2.1
+     * (heap retention) and §2.2 (string interning), which remain accurate.
+     *
+     * Contract: MUST NOT throw. It runs from `finally` blocks and from `catch`
+     * paths, where a throw would both mask the original error and skip the
+     * remaining cleanup. pendingTx is nulled FIRST so the in-memory reference is
+     * dropped even if every DOM operation fails, and each DOM operation is
+     * guarded independently so one failure cannot prevent the others.
+     *
+     * @param {{clearInput?: boolean}} [opts] clearInput:false keeps the WIF field
+     *        populated for the retry workflow after a *build* failure. pendingTx
+     *        is cleared regardless.
+     */
+    function clearKeyState(opts) {
+      try { pendingTx = null; } catch (_) {}
+      if (opts && opts.clearInput === false) return;
+      try { document.getElementById('private-key').value = ''; } catch (_) {}
+      try { document.getElementById('key-info').classList.add('hidden'); } catch (_) {}
+    }
+
     // ==========================================
     // Network Status & Blocking
     // ==========================================
@@ -877,8 +903,24 @@
         verifyInput.focus();
 
       } catch (err) {
-        errorDiv.textContent = err.message;
-        errorDiv.classList.remove('hidden');
+        // F-1 Site B. This catch previously rendered the error but left pendingTx
+        // holding the key: every DOM write that builds the confirmation modal sits
+        // after the pendingTx assignment and inside this try, so a fault there left
+        // the key resident with no modal open and no path that would ever clear it.
+        //
+        // Cleanup runs FIRST and unconditionally. If it ran after the error-rendering
+        // below, a secondary fault while rendering would skip it and the key would
+        // survive. clearInput:false deliberately retains the WIF field for the retry
+        // workflow; the key is dropped from pending transaction state regardless.
+        clearKeyState({ clearInput: false });
+
+        // Error rendering is secondary and must not be able to escape: a failure here
+        // would propagate out of the handler as an unhandled exception and mask the
+        // original build failure.
+        try {
+          errorDiv.textContent = err && err.message ? err.message : String(err);
+          errorDiv.classList.remove('hidden');
+        } catch (_) {}
       }
     });
     
@@ -900,7 +942,9 @@
     document.getElementById('confirm-cancel').addEventListener('click', function() {
       document.getElementById('confirm-modal').classList.add('hidden');
       document.getElementById('confirm-verify-input').value = '';
-      pendingTx = null;
+      // Single cleanup path. Cancel is not an error: the WIF field is retained so
+      // the user can correct the destination and retry.
+      clearKeyState({ clearInput: false });
     });
 
     document.getElementById('confirm-sign').addEventListener('click', function() {
@@ -911,6 +955,11 @@
     });
 
     function createSignedTransaction() {
+      // F-1 Site A. Previously called bare: any throw between the destructure below
+      // and the tail cleanup left the key live in pendingTx and in the DOM input,
+      // with the confirm modal already hidden and no error surfaced. Cleanup is now
+      // owned by `finally` and therefore runs on every exit path.
+      try {
       const { privateKey, pubKey, pubKeyHash, destHash, sendAmount, fee, change } = pendingTx;
 
       // Build outputs
@@ -985,12 +1034,20 @@
       document.getElementById('result-hex').value = rawTx;
       document.getElementById('tx-result').classList.remove('hidden');
 
-      // Security: Clear private key from memory and DOM
-      // Note: JavaScript cannot guarantee secure memory erasure, but we do our best
-      document.getElementById('private-key').value = '';
-      document.getElementById('key-info').classList.add('hidden');
-      
-      pendingTx = null;
+      } catch (signerError) {
+        // Preserve the original cause for diagnostics. Surfaced in the DOM only;
+        // this file deliberately performs no logging at all (docs/SIDE-CHANNELS.md §6).
+        try {
+          var errEl = document.getElementById('tx-error');
+          if (errEl) {
+            errEl.textContent = 'Signing failed: ' + (signerError && signerError.message ? signerError.message : String(signerError));
+            errEl.classList.remove('hidden');
+          }
+        } catch (_) {}
+      } finally {
+        // Runs on success, on a thrown error, and on an early return.
+        clearKeyState();
+      }
     }
 
     // ==========================================
