@@ -65,8 +65,11 @@ ok(rejected(run([])), 'empty chain array -> typed rejection');
 // wrong txid (valid hex, does not match rawTx)
 ok(rejected(run([Object.assign(hop(), { txid: 'ab'.repeat(32) })])), 'wrong txid -> typed rejection');
 
-// a fully valid single-hop chain still verifies
-{ const r = run([hop()]); ok(!r.threw && r.result === 'VALID' && r.outcome === 'VERIFIED', 'valid single-hop chain -> VERIFIED [got ' + (r.threw ? 'THREW:' + r.threw : r.outcome + '/' + r.result) + ']'); }
+// A fully valid single-hop chain still verifies. The outcome is VERIFIED-ISOLATION, not
+// VERIFIED: chain.html loads no header chain, so inclusion is NOT-ESTABLISHED by absence
+// (spec §G step 5). This expectation previously read 'VERIFIED', which encoded the
+// over-claim corrected in this commit — it was not relaxed to make a test pass.
+{ const r = run([hop()]); ok(!r.threw && r.result === 'VALID' && r.outcome === 'VERIFIED-ISOLATION', 'valid single-hop chain -> VERIFIED-ISOLATION [got ' + (r.threw ? 'THREW:' + r.threw : r.outcome + '/' + r.result) + ']'); }
 
 console.log('\n----------------------------------------');
 console.log('PASSED: ' + pass + '   FAILED: ' + fail);

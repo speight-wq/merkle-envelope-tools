@@ -30,6 +30,7 @@ const SUITES = [
   { name: 'test/test-explorer-malformed.js',  cmd: 'test/test-explorer-malformed.js' },
   { name: 'test/test-verifier-malformed.js',  cmd: 'test/test-verifier-malformed.js' },
   { name: 'test/test-chain-malformed.js',     cmd: 'test/test-chain-malformed.js' },
+  { name: 'test/test-consumer-outcome-parity.js (cross-consumer outcome agreement)', cmd: 'test/test-consumer-outcome-parity.js' },
   { name: 'test/test-chain.js',               cmd: 'test/test-chain.js' },
   { name: 'headers-node/conformance.js',      cmd: 'headers-node/conformance.js' },
   { name: 'headers-node-independent/selftest.js', cmd: 'headers-node-independent/selftest.js' },

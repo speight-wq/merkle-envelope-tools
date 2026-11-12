@@ -209,6 +209,25 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
     // ============================================================
     const PROTOCOL_VERSION = '1.0.0';
     const MAX_CHAIN_DEPTH = 10;
+
+    // Scope boundary specific to THIS consumer, appended to the shared SCOPE_ANTICLAIMS.
+    // chain.html has no header-chain loader, no checkpoint anchoring and no inclusion
+    // index, so chain inclusion is outside the scope of what it attempts — not something
+    // the evidence failed to establish. Stated explicitly rather than left to be inferred
+    // from the VERIFIED-ISOLATION label. Kept local so the shared source of truth in
+    // lib/headers.js stays consumer-agnostic.
+    const CHAIN_SCOPE_ANTICLAIMS = [
+      {
+        id: 'chain-inclusion-this-consumer',
+        scope: 'not-attempted',
+        label: 'Chain inclusion',
+        detail: 'This tool verifies transaction lineage, Merkle inclusion and proof-of-work ' +
+                'per hop in isolation. It does NOT load a header chain and does NOT attempt ' +
+                'checkpoint-anchored chain inclusion, so it does not establish that any block ' +
+                'referenced here is part of a checkpoint-anchored chain. Use verifier.html or ' +
+                'explorer.html with a headers.bin loaded to establish inclusion.'
+      }
+    ];
     const ABSENT_SATOSHIS = 0xFFFFFFFFFFFFFFFFn;
     const POS_LEFT = 0x00;
     const POS_RIGHT = 0x01;
@@ -728,9 +747,12 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
     // ============================================================
     // B1: map chain's failureType vocabulary onto the shared semantic outcome enum.
     function deriveChainOutcome(r) {
-      const O = (typeof OUTCOME !== 'undefined') ? OUTCOME : { VERIFIED:'VERIFIED', FAILED:'FAILED', MALFORMED:'MALFORMED', POLICY_REJECTED:'POLICY-REJECTED', INDETERMINATE:'INDETERMINATE', NOT_ESTABLISHED:'NOT-ESTABLISHED' };
+      const O = (typeof OUTCOME !== 'undefined') ? OUTCOME : { VERIFIED:'VERIFIED', VERIFIED_ISOLATION:'VERIFIED-ISOLATION', FAILED:'FAILED', MALFORMED:'MALFORMED', POLICY_REJECTED:'POLICY-REJECTED', INDETERMINATE:'INDETERMINATE', NOT_ESTABLISHED:'NOT-ESTABLISHED' };
       if (r.evaluationError || r.failureType === 'EVALUATION_ERROR') return O.INDETERMINATE;
-      if (r.result === 'VALID') return O.VERIFIED;
+      // This consumer loads no header chain (no checkpoint anchoring, no inclusion index),
+      // so chain inclusion is NOT-ESTABLISHED by absence and spec §G step 5 applies, never
+      // step 6. Returning VERIFIED here would claim inclusion that was never attempted.
+      if (r.result === 'VALID') return O.VERIFIED_ISOLATION;
       switch (r.failureType) {
         case 'STRUCTURE_INVALID': case 'TX_PARSE_ERROR': return O.MALFORMED;
         case 'POLICY_REJECTED': return O.POLICY_REJECTED;
@@ -747,7 +769,11 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
         const O = (typeof OUTCOME !== 'undefined') ? OUTCOME : { INDETERMINATE:'INDETERMINATE' };
         return { version: PROTOCOL_VERSION, result: 'FAILED', outcome: O.INDETERMINATE, evaluationError: true,
                  failureType: 'EVALUATION_ERROR', failureDetails: { reason: 'Evaluation error: ' + e.message },
-                 chainMetadata: { hopCount: (envelopes||[]).length }, claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []), hops: [] };
+                 chainMetadata: { hopCount: (envelopes||[]).length },
+                 // Scope boundary is permanent — it holds regardless of verdict, including
+                 // on the INDETERMINATE path.
+                 claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : [])
+                                         .concat(CHAIN_SCOPE_ANTICLAIMS), hops: [] };
       }
       if (res && !res.outcome) res.outcome = deriveChainOutcome(res);
       return res;
@@ -770,8 +796,11 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
           newestBlock: null
         },
         // Permanent scope boundary — what chain verification does NOT attempt to
-        // establish, regardless of verdict. Shared source of truth (headers.js).
-        claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : []),
+        // establish, regardless of verdict. Shared source of truth (headers.js), plus
+        // this consumer's own boundary: it loads no header chain, so inclusion is
+        // out of scope here even when every hop verifies.
+        claimsNotEstablished: (typeof SCOPE_ANTICLAIMS !== 'undefined' ? SCOPE_ANTICLAIMS.slice() : [])
+                                .concat(CHAIN_SCOPE_ANTICLAIMS),
         hops: []
       };
       
