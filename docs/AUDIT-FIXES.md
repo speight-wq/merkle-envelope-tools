@@ -24,9 +24,11 @@ are syntax-checked and logic-reviewed but still need a real browser test pass.
 | Differential vs original `headers.js` | original **accepts** forged low-difficulty chain; patched **rejects** it |
 
 The differential is the headline result: a `headers.bin` anchored at the REAL
-checkpoint (935000) but carrying one genuinely PoW-valid, sub-floor header is
-accepted by the original code (`checkpointVerified=true`, forged block enters
-`hashIndex`) and rejected by the patched code with a floor error.
+checkpoint in force at the time of this investigation (935000 — since replaced
+by 939999; see "Checkpoint difficulty misconfigured" below) but carrying one genuinely
+PoW-valid, sub-floor header is accepted by the original code
+(`checkpointVerified=true`, forged block enters `hashIndex`) and rejected by the
+patched code with a floor error.
 
 ---
 

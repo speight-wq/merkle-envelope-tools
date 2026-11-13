@@ -803,7 +803,40 @@ Tip: a single envelope object {...} is also accepted (verified as a one-hop root
                                 .concat(CHAIN_SCOPE_ANTICLAIMS),
         hops: []
       };
-      
+
+      // Evidence identity is computed HERE, before any phase can return, so that every
+      // outcome carries it.
+      //
+      // It used to be computed only at the Phase 3+ return paths (each marked "Still
+      // compute hashes for forensics"). Phases 1 and 2 — structural and ordering
+      // validation — return earlier, so a STRUCTURE_INVALID or ORDERING_INVALID report
+      // carried inputFingerprint: null. Two FAILED verdicts over the same evidence were
+      // therefore differently auditable depending only on which phase caught the problem,
+      // and the export filename fell back to 'chain-verification-unknown'.
+      //
+      // The fingerprint is a pure function of the submitted envelopes and says nothing
+      // about the verdict: VERIFICATION-SEMANTICS-SPEC.md §K defines it as an evidence-
+      // identity claim ("equal digest => same inputs, never same verdict"). Suppressing it
+      // because verification failed contradicts that, and a rejected report is precisely
+      // when identifying the evidence matters.
+      //
+      // Fails closed: serializeHop() dereferences envelope fields, so an envelope that is
+      // malformed enough to fail Phase 1 can legitimately be unserialisable. That is not a
+      // crash and must never become one — the fingerprint stays null and verification
+      // continues to its normal typed rejection. An ORDERING_INVALID result, by contrast,
+      // has already passed structural validation, so its fingerprint is always computable.
+      // An empty chain is skipped deliberately: serialising zero envelopes yields the
+      // SHA-256 of zero bytes (e3b0c442...), a constant that carries no information about
+      // any evidence. Emitting it as an "Input Fingerprint" would assert that evidence had
+      // been identified when none was submitted. No evidence means no evidence identity.
+      if (envelopes.length > 0) {
+        try {
+          result.inputFingerprint = computeInputFingerprint(envelopes);
+        } catch (e) {
+          result.inputFingerprint = null;
+        }
+      }
+
       // Validate chain depth
       if (envelopes.length > MAX_CHAIN_DEPTH) {
         result.failureType = 'STRUCTURE_INVALID';

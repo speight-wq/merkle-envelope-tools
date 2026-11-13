@@ -71,6 +71,67 @@ ok(rejected(run([Object.assign(hop(), { txid: 'ab'.repeat(32) })])), 'wrong txid
 // over-claim corrected in this commit — it was not relaxed to make a test pass.
 { const r = run([hop()]); ok(!r.threw && r.result === 'VALID' && r.outcome === 'VERIFIED-ISOLATION', 'valid single-hop chain -> VERIFIED-ISOLATION [got ' + (r.threw ? 'THREW:' + r.threw : r.outcome + '/' + r.result) + ']'); }
 
+// ---------------------------------------------------------------------------
+// Evidence identity must survive a rejection (EF-*).
+//
+// inputFingerprint is a pure function of the submitted envelopes. Spec §K defines it as
+// an evidence-identity claim — "equal digest => same inputs, never same verdict" — so it
+// must not depend on the verdict. It was previously computed only on the Phase 3+ return
+// paths, so a Phase 2 ordering rejection reported inputFingerprint: null: the report named
+// no evidence, could not be reproduced or compared, and exported as
+// 'chain-verification-unknown'. Two FAILED verdicts were differently auditable depending
+// only on which phase caught the problem.
+//
+// These assertions fail against the pre-fix chain.html.
+// ---------------------------------------------------------------------------
+function raw(chain) { try { return CTX.verifyChain(chain); } catch (e) { return { threw: e.message }; } }
+const FP = /^[0-9a-f]{32}$/;
+
+// EF-1 a valid chain still carries one (guards against the fix breaking the normal path)
+{ const r = raw([hop()]);
+  ok(!r.threw && FP.test(r.inputFingerprint || ''), 'EF-1 valid chain carries an inputFingerprint'); }
+
+// EF-2 the Phase 2 ordering rejection — the case that regressed — now carries one.
+// Two structurally valid but unrelated hops: neither spends the other.
+{ const r = raw([hop(), hop()]);
+  ok(!r.threw && r.failureType === 'ORDERING_INVALID', 'EF-2 precondition: unlinked pair -> ORDERING_INVALID');
+  ok(!r.threw && FP.test(r.inputFingerprint || ''),
+     'EF-2 ORDERING_INVALID rejection carries an inputFingerprint [got ' + (r.threw ? 'THREW' : r.inputFingerprint) + ']'); }
+
+// EF-3 a Phase 3 cryptographic rejection carries one (pre-existing behaviour, locked in)
+{ const e = hop(); e.proof[0].hash = e.proof[0].hash.replace(/.$/, c => (c === '0' ? '1' : '0'));
+  const r = raw([e]);
+  ok(!r.threw && r.result !== 'VALID' && FP.test(r.inputFingerprint || ''),
+     'EF-3 Phase-3 cryptographic rejection carries an inputFingerprint'); }
+
+// EF-4 identity is a function of the INPUT, not the verdict: a rejected chain and the same
+// bytes re-submitted must fingerprint identically, and different evidence must differ.
+{ const a = raw([hop(), hop()]), b = raw([hop(), hop()]);
+  ok(a.inputFingerprint === b.inputFingerprint, 'EF-4 same rejected evidence -> same fingerprint');
+  const c = raw([hop()]);
+  ok(c.inputFingerprint !== a.inputFingerprint, 'EF-4 different evidence -> different fingerprint'); }
+
+// EF-5 hop ORDER is semantically meaningful, so reversing a chain must change the identity.
+{ const x = hop(), y = Object.assign(hop(), { vout: (hop().vout || 0) + 1 });
+  const f1 = raw([x, y]).inputFingerprint, f2 = raw([y, x]).inputFingerprint;
+  ok(FP.test(f1 || '') && FP.test(f2 || '') && f1 !== f2,
+     'EF-5 reversed chain -> different fingerprint (order is meaningful)'); }
+
+// EF-6 no evidence means no evidence identity. Serialising zero envelopes yields SHA-256 of
+// zero bytes (e3b0c442...), a constant that identifies nothing; emitting it would assert
+// that evidence had been identified when none was submitted.
+{ const r = raw([]);
+  ok(!r.threw && r.inputFingerprint === null, 'EF-6 empty chain -> inputFingerprint null, not the empty-input hash');
+  ok(!r.threw && !/^e3b0c442/.test(r.inputFingerprint || ''), 'EF-6 empty chain never reports the SHA-256 of zero bytes'); }
+
+// EF-7 fail closed: an envelope malformed enough to be unserialisable must leave the
+// fingerprint null and must NOT crash out of verification.
+{ const e = hop(); delete e.txid;
+  const r = raw([e]);
+  ok(!r.threw, 'EF-7 unserialisable envelope does not throw out of verifyChain');
+  ok(!r.threw && r.result !== 'VALID', 'EF-7 unserialisable envelope still yields a typed rejection');
+  ok(!r.threw && r.inputFingerprint === null, 'EF-7 unserialisable envelope -> fingerprint null (fail closed)'); }
+
 console.log('\n----------------------------------------');
 console.log('PASSED: ' + pass + '   FAILED: ' + fail);
 process.exit(fail ? 1 : 0);
