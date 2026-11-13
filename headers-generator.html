@@ -74,8 +74,8 @@
     <div class="section-title">Generate Header Chain</div>
     <div class="field">
       <label class="label">Start Height</label>
-      <input type="text" class="input" id="start-height" placeholder="e.g., 935000">
-      <div class="hint">Must be greater than checkpoint (935,000). Leave empty to start from checkpoint.</div>
+      <input type="text" class="input" id="start-height" placeholder="e.g., 940000">
+      <div class="hint" id="start-height-hint">Must be greater than the checkpoint height (939,999). Leave empty to start from the checkpoint.</div>
     </div>
     <div class="field">
       <label class="label">Number of Headers</label>
@@ -125,6 +125,16 @@
     // Display checkpoint
     document.getElementById('checkpoint-height').textContent = CHECKPOINT.height.toLocaleString();
     document.getElementById('checkpoint-hash').textContent = CHECKPOINT.hash;
+
+    // Derive the start-height hint and placeholder from CHECKPOINT rather than leaving them
+    // as literals in the markup. They previously named a former checkpoint height, which was
+    // not merely stale: the validation below rejects any start height <= CHECKPOINT.height,
+    // so the suggested example was a value this tool refuses. The static markup carries the
+    // correct current values as a fallback; this keeps them correct if the checkpoint moves.
+    document.getElementById('start-height').placeholder = 'e.g., ' + (CHECKPOINT.height + 1);
+    document.getElementById('start-height-hint').textContent =
+      'Must be greater than the checkpoint height (' + CHECKPOINT.height.toLocaleString() +
+      '). Leave empty to start from the checkpoint.';
 
     async function fetchText(url) {
       const res = await fetch(url);

@@ -327,6 +327,30 @@ hash_int = int(block_hash, 16)
 print(f"Hash < Target: {hash_int < target}")
 ```
 
+### What Steps 1-3 do and do not establish
+
+Steps 1 and 2 are the part that matters, and they are the part only you can do. Querying an
+explorer you chose, over a network connection this project does not control, is what ties the
+embedded triple to the outside world. Step 3 is arithmetic you can run offline; it confirms the
+hash and `nBits` are mutually consistent — a pair that failed it could not be the same block —
+but it would pass equally for a fabricated pair, so it is a consistency check, not a
+confirmation.
+
+**What `verify_vectors.py` contributes, and what it does not.** Its checkpoint section (CP.1-CP.5)
+reads the successor header shipped at `test/headers-940000-to-940000.bin` and confirms that the
+file's anchor matches the checkpoint, that block 940,000's `prevBlock` commits to the checkpoint
+hash, that that header satisfies its own proof-of-work, and that its difficulty sits within the
+×8 floor so the proof-of-work check cannot be satisfied by a grindable low-difficulty header.
+Forging that would require real hashpower rather than an editor.
+
+It is still **internal consistency, not external authenticity**: the successor header lives in
+this repository alongside the value it confirms, so anyone able to change one could change both.
+No offline check — not Step 3, not `verify_vectors.py`, not
+`test/test-checkpoint-consistency.js` — can establish that block 939,999 exists, that this is
+its real hash and `nBits`, or that it is on the most-work chain. **Only Steps 1 and 2, performed
+by you against sources of your choosing, can do that.** Do them before relying on this tool for
+anything of value.
+
 ---
 
 ## Complete Verification Script
@@ -401,7 +425,7 @@ bitcoin-cli gettxoutproof '["f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338
 | Vector 3 | 170 | Historical record | Guinness | Merkle proof, PoW |
 | Checkpoint | 939,999 | WhatsOnChain | BSV node | nBits -> target -> PoW |
 
-**Trust model:** If WhatsOnChain, Blockchair, your local computation, and (optionally) a BSV node all agree, the data is correct.
+**Trust model:** If WhatsOnChain, Blockchair, your local computation, and (optionally) a BSV node all agree, then several mutually independent sources concur on this data. That is the strongest assurance available here, and it is not the same as proof: it establishes agreement among the sources you consulted, not that the data is correct in some absolute sense. Use more than one source, and prefer sources that do not share an operator.
 
 **Note on early blocks:** Blocks 0, 1, and 170 are identical across BTC, BCH, and BSV since they predate any chain splits. This means BTC block explorers can also be used to verify these vectors.
 

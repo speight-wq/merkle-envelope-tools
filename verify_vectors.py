@@ -14,6 +14,7 @@ Each verification can be cross-checked against:
 """
 
 import hashlib
+import os
 import sys
 
 # =============================================================================
@@ -408,29 +409,139 @@ def run_tests():
     print()
     
     # -------------------------------------------------------------------------
-    # CHECKPOINT: Block 935,000
+    # CHECKPOINT: the trust anchor
     # -------------------------------------------------------------------------
-    print("CHECKPOINT: Block 935,000")
-    print("-" * 50)
+    # The height is printed from VECTORS["checkpoint"] rather than written as a literal.
+    # Three hardcoded labels naming the FORMER checkpoint height survived the move to the
+    # current anchor and contradicted the data two lines away, sending users to the wrong
+    # block. See docs/AUDIT-FIXES.md for the checkpoint's history.
     cp = VECTORS["checkpoint"]
+    print(f"CHECKPOINT: Block {cp['block_height']:,}")
+    print("-" * 50)
     
-    # Test 3.1: nBits target computation
-    target = nbits_to_target(cp["nbits"])
-    if target > 0:
-        print(f"  ✓ nBits 0x{cp['nbits']:08x} → target valid")
+    # WHAT THIS SECTION ESTABLISHES, AND WHAT IT CANNOT
+    # -------------------------------------------------
+    # It previously ran two checks: that nbits_to_target() returned a positive number, and
+    # that the hash string began with eight zeros. Neither says anything about whether this
+    # height, this hash and this nBits belong to the same block, or to any real block - any
+    # 64-character string starting with eight zeros passed. Two green ticks under a heading
+    # reading CHECKPOINT invited the reader to conclude the anchor had been checked.
+    #
+    # The checks below instead use the successor header shipped in the repository
+    # (test/headers-940000-to-940000.bin) to establish that the triple is internally
+    # consistent and backed by real proof-of-work:
+    #
+    #   CP.1  the file's anchor prefix matches the checkpoint height and hash
+    #   CP.2  the successor header's prevBlock field commits to the checkpoint hash
+    #   CP.3  the successor header satisfies its own declared proof-of-work
+    #   CP.4  the successor's difficulty is within the x8 floor of the checkpoint's, so a
+    #         trivially-grindable low-difficulty header cannot satisfy CP.3
+    #   CP.5  the checkpoint hash is below the target implied by its own nBits
+    #
+    # CP.2 + CP.3 + CP.4 together mean a forged anchor would require a header with genuine
+    # proof-of-work at near-checkpoint difficulty, which costs hashpower rather than a text
+    # editor. CP.4 is what makes CP.3 meaningful.
+    #
+    # LIMITATION, stated rather than implied: this is INTERNAL CONSISTENCY, not EXTERNAL
+    # AUTHENTICITY. The successor header lives in the same repository as the value it
+    # confirms, so anyone able to change one could change both. These checks CANNOT
+    # establish that block 939,999 exists, that this is its real hash or nBits, or that it
+    # is on the most-work chain. No offline check can. External confirmation is a human
+    # step - see docs/CROSS-VERIFICATION.md and docs/CHECKPOINT-PROVENANCE.md.
+    #
+    # Everything here is offline: one local file read, stdlib only, no network.
+
+    # Mirrors DIFFICULTY_TOLERANCE in lib/headers.js. This is a declared local POLICY
+    # parameter, not a consensus rule.
+    TOLERANCE_MULTIPLIER = 8
+    HEADERS_BIN = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "test", "headers-940000-to-940000.bin")
+
+    cp_target = nbits_to_target(cp["nbits"])
+
+    # CP.5 first: it needs no external file.
+    if 0 < int(cp["block_hash"], 16) <= cp_target:
+        print(f"  ✓ CP.5 checkpoint hash is below the target implied by its own nBits "
+              f"(0x{cp['nbits']:08x})")
         passed += 1
     else:
-        print(f"  ✗ nBits target computation failed!")
+        print(f"  ✗ CP.5 checkpoint hash is NOT below its own nBits target!")
         failed += 1
-    
-    # Test 3.2: Block hash format (must have leading zeros for BSV difficulty)
-    if cp["block_hash"].startswith("00000000"):
-        print(f"  ✓ Block hash has expected leading zeros")
-        passed += 1
+
+    # CP.1-CP.4 need the successor header. A missing file is a FAILURE, not a skip: a
+    # section that silently checks nothing is the defect this replaced.
+    if not os.path.exists(HEADERS_BIN):
+        print(f"  ✗ CP.1-CP.4 cannot run: {os.path.relpath(HEADERS_BIN)} not found")
+        print(f"      This file ships with the repository and is required to verify the")
+        print(f"      checkpoint linkage. Run this script from a complete checkout.")
+        failed += 1
     else:
-        print(f"  ✗ Block hash format unexpected!")
-        failed += 1
-    
+        blob = open(HEADERS_BIN, "rb").read()
+        if len(blob) < 120:
+            print(f"  ✗ CP.1 {os.path.relpath(HEADERS_BIN)} is too small "
+                  f"({len(blob)} bytes; need at least 120)")
+            failed += 1
+        else:
+            # Layout (lib/headers.js verifyHeaderChain): anchorHeight u32-LE,
+            # anchorHash 32 bytes display order, headerCount u32-LE, then 80-byte headers.
+            anchor_height = int.from_bytes(blob[0:4], "little")
+            anchor_hash = blob[4:36].hex()
+            header_count = int.from_bytes(blob[36:40], "little")
+            successor = blob[40:120]
+
+            # CP.1 anchor prefix matches the checkpoint
+            if anchor_height == cp["block_height"] and anchor_hash == cp["block_hash"].lower():
+                print(f"  ✓ CP.1 headers.bin anchor matches the checkpoint "
+                      f"({anchor_height:,} / …{anchor_hash[-8:]})")
+                passed += 1
+            else:
+                print(f"  ✗ CP.1 headers.bin anchor does NOT match the checkpoint!")
+                print(f"      file:       {anchor_height:,} / {anchor_hash}")
+                print(f"      checkpoint: {cp['block_height']:,} / {cp['block_hash']}")
+                failed += 1
+
+            # CP.2 the successor commits to the checkpoint via prevBlock
+            prev_block = successor[4:36][::-1].hex()
+            if header_count >= 1 and prev_block == cp["block_hash"].lower():
+                print(f"  ✓ CP.2 successor block {cp['block_height'] + 1:,} prevBlock "
+                      f"commits to the checkpoint hash")
+                passed += 1
+            else:
+                print(f"  ✗ CP.2 successor prevBlock does NOT commit to the checkpoint!")
+                print(f"      prevBlock:  {prev_block}")
+                print(f"      checkpoint: {cp['block_hash']}")
+                failed += 1
+
+            # CP.3 the successor's own proof-of-work is valid
+            successor_hex = successor.hex()
+            if verify_pow(successor_hex):
+                print(f"  ✓ CP.3 successor header satisfies its own proof-of-work "
+                      f"(hash {compute_block_hash(successor_hex)[:16]}…)")
+                passed += 1
+            else:
+                print(f"  ✗ CP.3 successor header FAILS its own proof-of-work!")
+                failed += 1
+
+            # CP.4 the successor's difficulty is within the floor, so CP.3 is not satisfiable
+            # by a grindable low-difficulty header. Mirrors enforceChainFloor():
+            # reject when target > checkpointTarget * TOLERANCE.
+            successor_nbits = extract_nbits(successor_hex)
+            successor_target = nbits_to_target(successor_nbits)
+            if 0 < successor_target <= cp_target * TOLERANCE_MULTIPLIER:
+                print(f"  ✓ CP.4 successor difficulty (0x{successor_nbits:08x}) is within "
+                      f"the x{TOLERANCE_MULTIPLIER} floor of the checkpoint")
+                passed += 1
+            else:
+                print(f"  ✗ CP.4 successor difficulty (0x{successor_nbits:08x}) is OUTSIDE "
+                      f"the x{TOLERANCE_MULTIPLIER} checkpoint floor — CP.3 proves little!")
+                failed += 1
+
+    print()
+    print("  Scope: the five checks above establish INTERNAL CONSISTENCY of the checkpoint")
+    print("  triple and that it is backed by real proof-of-work. They do NOT establish that")
+    print("  the checkpoint is authentic or on the most-work chain — the header used is")
+    print("  shipped in this repository. Confirm the anchor against independent explorers;")
+    print("  see docs/CROSS-VERIFICATION.md.")
     print()
     
     # -------------------------------------------------------------------------
@@ -555,18 +666,23 @@ def run_tests():
     print("CROSS-VERIFICATION URLS:")
     print("-" * 50)
     print()
-    print("Vector 1 - Transaction:")
-    print(f"  https://whatsonchain.com/tx/{v1['txid']}")
-    print(f"  https://blockchair.com/bitcoin-sv/transaction/{v1['txid']}")
-    print()
-    print("Vector 1 - Block:")
-    print(f"  https://whatsonchain.com/block-height/{v1['block_height']}")
-    print()
-    print("Vector 2 - Genesis Block:")
-    print(f"  https://whatsonchain.com/block-height/0")
-    print()
-    print("Checkpoint - Block 935,000:")
-    print(f"  https://whatsonchain.com/block-height/939999")
+    # Every label and height below is derived from the vector it describes. They were
+    # previously literals, and three of them were wrong: vector 2 was labelled "Genesis
+    # Block" with a hardcoded height of 0 (it is block 1 - genesis is vector 1), vector 3
+    # had no entry at all despite being the only vector whose Merkle proof is verified, and
+    # the checkpoint was labelled with the former anchor height while linking to the current
+    # one.
+    for key, label in (("vector1", "Vector 1"), ("vector2", "Vector 2"), ("vector3", "Vector 3")):
+        v = VECTORS[key]
+        print(f"{label} - {v['description']}:")
+        print(f"  https://whatsonchain.com/tx/{v['txid']}")
+        print(f"  https://blockchair.com/bitcoin-sv/transaction/{v['txid']}")
+        print(f"  https://whatsonchain.com/block-height/{v['block_height']}")
+        print()
+    print(f"Checkpoint - Block {cp['block_height']:,}:")
+    print(f"  https://whatsonchain.com/block-height/{cp['block_height']}")
+    print(f"  Successor block {cp['block_height'] + 1:,} (its prevBlock commits to the checkpoint):")
+    print(f"  https://whatsonchain.com/block-height/{cp['block_height'] + 1}")
     print()
     
     return failed == 0

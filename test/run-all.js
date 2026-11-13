@@ -21,6 +21,7 @@ const ROOT = path.join(__dirname, '..');
 const SUITES = [
   { name: 'lib/bump.js self-test',            cmd: 'lib/bump.js' },
   { name: 'lib/beef.js self-test',            cmd: 'lib/beef.js' },
+  { name: 'test/test-checkpoint-consistency.js (trust-anchor drift)', cmd: 'test/test-checkpoint-consistency.js' },
   { name: 'test/test-audit-fixes.js',         cmd: 'test/test-audit-fixes.js' },
   { name: 'test/test-adversarial.js',         cmd: 'test/test-adversarial.js' },
   { name: 'test/validate.js (independent)',   cmd: 'test/validate.js' },

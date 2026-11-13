@@ -21,12 +21,6 @@ A proof that holds with no chain loaded returns `VERIFIED-ISOLATION` (PoW and in
 block proven; on-chain membership not claimed), never the `VERIFIED` of a chain-confirmed
 result. Malformed or insufficient evidence fails closed.
 
-All three verification surfaces emit one shared outcome vocabulary - `VERIFIED`,
-`VERIFIED-ISOLATION`, `FAILED`, `POLICY-REJECTED`, `MALFORMED`, `INDETERMINATE`, and
-`NOT-ESTABLISHED` - under one frozen precedence, so the same evidence does not produce a
-different-shaped verdict depending on which tool you opened. A regression suite drives all three
-on identical evidence and asserts they agree; that suite exists because they once did not.
-
 ## Why it exists
 
 "Verified" usually means "a server I trusted said so," and SPV tools routinely conflate distinct
@@ -42,7 +36,7 @@ Everything is offline and dependency-free. Open a tool in a browser:
 - `verifier.html` - pass/fail verification (BUMP / BEEF / legacy proof + optional chain).
 - `explorer.html` - forensic proof analysis with a deterministic verification record.
 - `chain.html` - multi-hop lineage verification.
-- `signer.html` - air-gapped P2PKH signing (see `docs/ANTI-FEATURES.md`, `docs/SIDE-CHANNELS.md`).
+- `signer.html` - air-gapped P2PKH signing (see `ANTI-FEATURES.md`, `SIDE-CHANNELS.md`).
 - `generator.html` / `headers-generator.html` - build envelopes / fetch a checkpoint-anchored `headers.bin` (online).
 
 Run the test suite (Node >= 18; no install, no network):
@@ -55,9 +49,7 @@ npm test
 
 PoW, target, difficulty-floor, and chain-membership verification lives once in `lib/headers.js`
 and is shared by every tool; the block hash is always the computed `SHA256d(blockHeader)`, never
-a self-declared value. The outcome vocabulary and its precedence ladder are shared from the same
-module, so a verdict label is derived in one place rather than re-invented per tool. The label is
-derived from per-claim signals and changes no accept/reject decision. The single trust anchor is the embedded checkpoint (block 939,999); a
+a self-declared value. The single trust anchor is the embedded checkpoint (block 939,999); a
 loaded `headers.bin` must anchor to it or it fails closed, and is never silently downgraded to
 isolation. Every file is self-contained, so a verdict reproduces across machines - confirm you
 are running the reviewed bytes with `shasum -a 256 lib/*.js *.html`.
@@ -66,7 +58,7 @@ The complete normative semantics - byte order, `nBits` decoding, the outcome tax
 precedence, the evaluation boundary, evidence identity, and the `headers.bin` anchoring
 algorithm - are in `VERIFICATION-SEMANTICS-SPEC.md`. Every bundled mainnet vector can be
 reproduced independently against block explorers, direct computation, or a node; see
-`docs/CROSS-VERIFICATION.md`.
+`CROSS-VERIFICATION.md`.
 
 Scope note: `verifier.html` and `chain.html` bind `rawTx` (`txid == SHA256d(rawTx)`);
 `explorer.html` deliberately does not, claiming TXID inclusion rather than transaction-byte
@@ -86,37 +78,16 @@ ways with any BRC-62/74-compatible wallet (for example `@bsv/sdk`).
 
 ## Security & testing
 
-`npm test` runs 23 suites - deterministic unit, adversarial, and differential - each as its own
-process, including two spec-derived verifiers that reimplement the semantics from the
-specification and reproduce the reference with zero divergences, plus an independent Node-crypto
-Merkle oracle. Beyond that, the byte-level parsers have been exercised by a deterministic,
-seed/replay **500,000-mutation campaign** across BUMP, block headers / PoW, `headers.bin`,
-envelopes, and BEEF / Atomic-BEEF, and the shipped `explorer.html`, `verifier.html`, and
-`chain.html` verification paths are fuzzed with negative controls that prove the harness can
-detect a planted false acceptance. The parser and shipped-path fuzzers found and helped fix real
-production defects; findings and rationale are in `docs/AUDIT-FIXES.md`.
-
-**Regression negative controls.** Two suites run a second time against immutable pre-fix
-fixtures under `test/fixtures/` holding the exact bytes of the code before a defect was
-corrected, and must *detect* that original defect. These are distinct from the fuzzers' planted
-false-accept controls: they prove the regression assertions still catch the specific bug they
-were written for, rather than having quietly decayed into passing against anything. Each control
-pins its fixture's SHA-256, re-checks that the fixture still exhibits the defect, and requires a
-minimum number of detections, so a tampered fixture, a replaced fixture, or a weakened assertion
-set fails the run rather than reporting a hollow pass. Both are registered in `npm test`.
-
-An earlier generation of these controls read their baseline with `git show HEAD:<file>`. Once
-each fix was committed, `HEAD` *was* the fix, so they compared the fix against itself, printed
-success-shaped output while detecting nothing, and were not registered in the runner, so nothing
-ran them. The fixture approach removes the dependency on Git history, on the identity of `HEAD`,
-and on the network.
-
-**Signer key-state cleanup.** `signer.html` runs its key-state cleanup on all relevant exit
-paths - success, thrown build, cancellation, and a secondary DOM fault during error rendering -
-and removes reachable application references to the decoded key. This is not secure memory
-erasure: it is subject to the JavaScript string-retention limitations documented in
-`docs/SIDE-CHANNELS.md`, which this project cannot overcome from script. The WIF input is
-deliberately retained after a build failure to support retry, with the decoded key cleared.
+`npm test` runs deterministic unit, adversarial, and differential suites - including two
+spec-derived verifiers that reimplement the semantics from the specification and reproduce the
+reference with zero divergences, plus an independent Node-crypto Merkle oracle. Beyond that, the
+byte-level parsers have been exercised by a deterministic, seed/replay **500,000-mutation
+campaign** across BUMP, block headers / PoW, `headers.bin`, envelopes, and BEEF / Atomic-BEEF,
+and the shipped `explorer.html`, `verifier.html`, and `chain.html` verification paths are fuzzed
+with negative
+controls that prove the harness can detect a planted false acceptance. The parser and
+shipped-path fuzzers found and helped fix real production defects; findings and rationale are in
+`AUDIT-FIXES.md`.
 
 ### Independent implementation agreement
 
