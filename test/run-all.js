@@ -39,7 +39,19 @@ const SUITES = [
   { name: 'test/fuzz-verifier-browser.js (shipped verifier verify(), seed 20260401, 20k iters)', cmd: 'test/fuzz-verifier-browser.js', args: ['--seed', '20260401', '--iters', '20000'] },
   { name: 'test/fuzz-chain-browser.js (shipped chain verify(), seed 20260501, 20k iters)', cmd: 'test/fuzz-chain-browser.js', args: ['--seed', '20260501', '--iters', '20000'] },
   { name: 'test/fuzz-beef-oracle.js (BEEF lib vs independent oracle, seed 20260601, 20k iters)', cmd: 'test/fuzz-beef-oracle.js', args: ['--seed', '20260601', '--iters', '20000'] },
-  { name: 'test/interop-beef-sdk.js (3-way BEEF conformance; skips if @bsv/sdk absent)', cmd: 'test/interop-beef-sdk.js' }
+  { name: 'test/interop-beef-sdk.js (3-way BEEF conformance; skips if @bsv/sdk absent)', cmd: 'test/interop-beef-sdk.js' },
+
+  // Negative controls. Each runs its own assertions against an immutable pre-fix
+  // fixture under test/fixtures/ and must DETECT the original defect; a control that
+  // detects nothing, or whose fixture has been modified, exits non-zero and fails the
+  // run. They are registered here deliberately: the previous controls read the pre-fix
+  // source with `git show HEAD:...`, so committing the fix silently made them inert and
+  // nothing noticed, because nothing ran them. Under these flags a failing assertion is
+  // the expected result and prints as DETECT rather than FAIL.
+  { name: 'test/test-signer-cleanup.js --unfixed (NEGATIVE CONTROL: F-1 defect must be detected)',
+    cmd: 'test/test-signer-cleanup.js', args: ['--unfixed'] },
+  { name: 'test/test-consumer-outcome-parity.js --base (NEGATIVE CONTROL: chain over-claim must be detected)',
+    cmd: 'test/test-consumer-outcome-parity.js', args: ['--base'] }
 ];
 
 // A suite is a failure if the process exits non-zero OR its output reports a non-zero

@@ -31,22 +31,70 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { execSync } = require('child_process');
+const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const BASE = process.argv.includes('--base');   // negative control
+
+// Minimum number of assertions that MUST detect a defect in the pre-fix fixtures.
+// "At least one" is too weak — it would tolerate a collapse in detection coverage.
+// This is the count observed when the control was written (P1 x2, P2, P3, P8). More is
+// fine; fewer fails loudly. Update deliberately if the assertion set changes.
+const MIN_DETECTIONS = 5;
 const ENV = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/real-envelope.json'), 'utf8'));
 
 let pass = 0, fail = 0;
 const failures = [];
 function ok(cond, msg) {
   if (cond) { pass++; console.log('PASS ' + msg); }
-  else { fail++; failures.push(msg); console.log('FAIL ' + msg); }
+  else {
+    fail++; failures.push(msg);
+    // Under --base a failing assertion is the EXPECTED outcome: it is the control
+    // detecting the original defect. Labelling it 'FAIL' would misread as a problem,
+    // and would also look like a real failure to run-all.js's output scanner.
+    // FIX-0* are control-integrity assertions and are genuine failures in both modes.
+    const expected = BASE && msg.indexOf('FIX-0') !== 0;
+    console.log((expected ? 'DETECT ' : 'FAIL ') + msg);
+  }
 }
 
-// Read a file from the working tree, or from git HEAD under --base.
+// ---------------------------------------------------------------------------
+// NEGATIVE-CONTROL BASELINE
+//
+// This control previously read the pre-fix source with `git show HEAD:<file>`. Once
+// the fix was committed, HEAD *contained* the fix, so the control compared the fix
+// against itself, reported zero failures, and printed text that read like success.
+//
+// The baseline is now two immutable fixtures: the exact pre-fix chain.html and
+// lib/headers.js, taken verbatim from commit b743fccb (the last commit before the
+// chain-outcome corrections landed). They are the original files, not
+// reconstructions, so they exhibit the original defects by being the original code.
+//
+// Only those two files were changed by the fix, so only those two are substituted.
+// explorer.html and verifier.html are read from the working tree in both modes:
+// they were not part of the defect, and the control's job is to prove the parity
+// assertions can detect chain.html diverging from them.
+//
+// FIX-0 below pins each fixture's SHA-256 and checks it still exhibits its defect,
+// so fixture rot is an explicit, diagnosable failure rather than a silent one.
+// No network and no git history are required.
+// ---------------------------------------------------------------------------
+const FIXTURES = {
+  'chain.html':     { rel: 'test/fixtures/prefix-chain-overclaim.html',
+                      sha: '2f4b95ca84577eeb4085405f4a5cebe007042d602add8f66c4f93b139f2ade0e',
+                      // pre-fix: unconditional VERIFIED, and no VERIFIED_ISOLATION anywhere
+                      defect: t => /VALID'\) return O\.VERIFIED;/.test(t) &&
+                                   t.indexOf('VERIFIED_ISOLATION') === -1 &&
+                                   t.indexOf('chain-inclusion-this-consumer') === -1 },
+  'lib/headers.js': { rel: 'test/fixtures/prefix-anticlaim-headers.js',
+                      sha: 'f83c83e9459eea6eade8f0a4680fa1a3d5d41637edf57602f632fb1edf431a9a',
+                      // pre-fix: anti-claim opens with an unconditional positive assertion
+                      defect: t => t.indexOf('policy is verified') !== -1 }
+};
+
+// Read a file from the working tree, or from its immutable pre-fix fixture under --base.
 function src(rel) {
-  if (BASE) return execSync('git show HEAD:' + rel, { cwd: ROOT, maxBuffer: 1 << 24 }).toString('utf8');
+  if (BASE && FIXTURES[rel]) return fs.readFileSync(path.join(ROOT, FIXTURES[rel].rel), 'utf8');
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
 }
 
@@ -147,7 +195,25 @@ badPoW.blockHeader = badPoW.blockHeader.slice(0, 152) + 'ffffffff';
 const badHex = clone(ENV);
 badHex.blockHeader = 'zz'.repeat(80);
 
-console.log('=== cross-consumer outcome parity' + (BASE ? '  [NEGATIVE CONTROL: chain.html at git HEAD]' : '') + ' ===\n');
+console.log('=== cross-consumer outcome parity' +
+  (BASE ? '  [NEGATIVE CONTROL vs immutable pre-fix fixtures]' : '') + ' ===\n');
+
+// ---------------------------------------------------------------------------
+// FIX-0 — fixture integrity. Runs in BOTH modes so a rotten fixture is caught even
+// on a normal run, when the fixtures are otherwise unused.
+// ---------------------------------------------------------------------------
+for (const [target, f] of Object.entries(FIXTURES)) {
+  const fpath = path.join(ROOT, f.rel);
+  let raw = null;
+  try { raw = fs.readFileSync(fpath); } catch (_) {}
+  ok(raw !== null, 'FIX-0a fixture present for ' + target + ' (' + f.rel + ')');
+  if (!raw) continue;
+  const got = crypto.createHash('sha256').update(raw).digest('hex');
+  ok(got === f.sha, 'FIX-0a fixture SHA-256 matches pin for ' + target + ' (' + f.sha.slice(0, 12) + '...)');
+  if (got !== f.sha) console.log('     fixture has been MODIFIED: got ' + got);
+  ok(f.defect(raw.toString('utf8')),
+    'FIX-0b fixture still exhibits the original defect for ' + target);
+}
 
 // ---------------------------------------------------------------------------
 // P1 — the core parity case. Fails against the pre-fix implementation.
@@ -225,11 +291,45 @@ allThree('P7 malformed header (bad hex)', badHex, 'MALFORMED');
 }
 
 console.log('\n----------------------------------------');
-console.log('PASSED: ' + pass + '   FAILED: ' + fail);
-if (fail) { console.log('\nFAILURES:'); failures.forEach(f => console.log('  - ' + f)); }
 
-if (BASE) {
-  console.log('\nNEGATIVE CONTROL: failures above are expected against the pre-fix source.');
-  process.exit(fail > 0 ? 0 : 1);   // control passes only if the suite FAILED
+const fixtureBroken = failures.some(f => f.indexOf('FIX-0') === 0);
+
+if (!BASE) {
+  console.log('PASSED: ' + pass + '   FAILED: ' + fail);
+  if (fail) { console.log('\nFAILURES:'); failures.forEach(f => console.log('  - ' + f)); }
+  process.exit(fail ? 1 : 0);
 }
-process.exit(fail ? 1 : 0);
+
+// --- negative control mode -------------------------------------------------
+const detected = failures.filter(f => f.indexOf('FIX-0') !== 0);
+console.log('NEGATIVE CONTROL  assertions run: ' + (pass + fail) +
+            '   defects detected: ' + detected.length +
+            '   control integrity failures: ' + (fail - detected.length));
+
+if (fixtureBroken) {
+  console.log('\nCONTROL BROKEN — a pre-fix fixture is missing, modified, or no longer');
+  console.log('exhibits its defect. This is NOT expected detection:');
+  failures.filter(f => f.indexOf('FIX-0') === 0).forEach(f => console.log('  - ' + f));
+  console.log('\nRESULT: FAIL (control cannot prove anything in this state)');
+  process.exit(1);
+}
+if (detected.length === 0) {
+  console.log('\nCONTROL INERT — ran against the pre-fix fixtures and detected NO defect.');
+  console.log('Either the assertions no longer cover the chain-outcome corrections, or the');
+  console.log('fixtures are not the pre-fix code. A control that detects nothing proves nothing.');
+  console.log('\nRESULT: FAIL');
+  process.exit(1);
+}
+if (detected.length < MIN_DETECTIONS) {
+  console.log('\nCONTROL WEAKENED — detected ' + detected.length + ' defect(s) but expected at least ' +
+              MIN_DETECTIONS + '.');
+  console.log('Detection coverage has dropped. Either assertions that caught the over-claim');
+  console.log('were removed or neutered, or the fixtures no longer exercise them. If the');
+  console.log('assertion set changed on purpose, update MIN_DETECTIONS deliberately.');
+  console.log('\nRESULT: FAIL');
+  process.exit(1);
+}
+console.log('\nEXPECTED DETECTIONS (the control working correctly):');
+detected.forEach(f => console.log('  - ' + f));
+console.log('\nRESULT: PASS (' + detected.length + ' original defect(s) detected in the pre-fix fixtures)');
+process.exit(0);

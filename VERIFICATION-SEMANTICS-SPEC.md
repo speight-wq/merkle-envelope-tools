@@ -6,6 +6,19 @@ does **today**, it says so explicitly and cites the location. Nothing here chang
 production verification logic; the only code/doc changes made alongside it are the
 authorised factual corrections listed in §M.
 
+**Revision note (specification hygiene pass, reviewed against
+`f4f3d3b306e671206bcb28c1cc399b9ace56d7f9`).** The readiness sections of this document had
+fallen behind the code: they described the outcome enum, `POLICY-REJECTED`, `INDETERMINATE`,
+the advisory axis and the evidence digest as *proposed*, when all five are implemented. Those
+sections (§L, "Final independence test", "Conformance readiness", "Final question", and the
+`@bsv/sdk` paragraph in §M) have been reconciled against the tree, with line cites. The
+normative content — §§A–K and the frozen CONFORMANCE CONTRACT — is **unchanged** except for two
+additions that document behaviour the ladder did not previously mention (the `NOT-ESTABLISHED`
+fallthrough in §F/§G, and the digest framing as implemented in §K). No conformance claim was
+strengthened: residuals R1–R4 are stated in the readiness section, including that no
+independent third-party audit exists and that the specification and the spec-derived verifiers
+share an author. **This pass changed no code.**
+
 Guiding rules for this document:
 - If a number does not reproduce, it is not cited as a fixed metric.
 - If an external oracle does not exist, it is not claimed.
@@ -162,6 +175,16 @@ statement about the **input**; `INDETERMINATE` is the absence of a trustworthy s
 because the **tool** failed. The semantics-policy memo's own invariant ("must be visibly
 distinguished") requires two outcomes, not one bucket.
 
+**`NOT-ESTABLISHED` at top level (normative note).** The table above defines
+`NOT-ESTABLISHED` as a *per-claim* outcome for claims not attempted by design, and §G states
+it is "never a top-level verdict for well-formed input". That remains the normative rule. It
+is **not** an unreachable value in an implementation: the reference classifier is total, so
+input that is neither established, nor failed, nor policy-rejected, nor malformed, nor an
+evaluation error falls through to `NOT-ESTABLISHED` (see §G, fallthrough). A conforming
+implementation must make the same fallthrough rather than inventing a seventh label or
+defaulting to a positive verdict; reaching it for well-formed input indicates incomplete
+evidence, not a passing result.
+
 ## G. Verdict composition (deterministic top-level mapping)
 
 The top-level verdict is derived from per-claim outcomes by **first-match precedence**.
@@ -179,6 +202,13 @@ Detection mechanism, not just priority, separates the first two:
    loaded, so inclusion is `NOT-ESTABLISHED` by absence of evidence. PoW + root proven;
    inclusion **not** claimed. (This is today's amber "PoW in isolation".)
 6. **VERIFIED** — all required claims `ESTABLISHED`, including chain inclusion.
+
+**Fallthrough — `NOT-ESTABLISHED`.** The six rows above are a first-match ladder over
+independent signals, so they are not exhaustive: nothing in rows 1–4 fired and the
+cryptographic claims were not `ESTABLISHED`. The verdict is then `NOT-ESTABLISHED` — no
+positive claim, no accusation against the evidence. This is a required seventh return value
+for a total classifier, not a seventh semantic category; see §F. It must **fail closed**: it
+is never rendered as, or coerced into, a positive verdict.
 
 Scope anti-claims (`most-work-chain`, `current-spend-status`) are permanently
 `NOT-ESTABLISHED` and **never** affect the top-level verdict (they are not-attempted).
@@ -298,9 +328,31 @@ real identifier bug (a strictly larger subset omission than the README's documen
 state / outcome" deviation), and it is the concrete reason the evidence digest must be
 extended before any conformance claim rests on it.
 
-## L. Existing implementation mapping (current → proposed)
+## L. Existing implementation mapping (legacy signals → shared enum)
 
-Three overlapping encodings exist today; none is the enum above.
+**Status: the shared vocabulary is now emitted.** `lib/headers.js` defines the canonical
+`OUTCOME` enum and a pure, total `classifyOutcome(signals)` implementing the §G precedence,
+exported on the global/`window` object alongside `CHECKPOINT` and `SCOPE_ANTICLAIMS`. All
+three consumers emit values from that one enum. The three encodings described below still
+exist **as internal per-claim signals** — that is by design: they are the inputs the
+classifier reduces. What no longer exists is three *outcome vocabularies*.
+
+Per-consumer derivation as it stands:
+
+| Consumer | Derives the outcome by | Note |
+|---|---|---|
+| `verifier.html` | calls shared `classifyOutcome` | accumulates `evaluationError` / `malformed` / `cryptoFailed` / `floorFailed` and passes them in |
+| `explorer.html` | calls shared `classifyOutcome` | same signal set, plus `chainLoaded` / `inclusionVerified` |
+| `chain.html` | **own mapper** `deriveChainOutcome` | emits the shared `OUTCOME` values, but maps its legacy `failureType` vocabulary itself rather than calling `classifyOutcome` |
+
+`chain.html` is therefore conformant in *vocabulary* but not yet *converged on the shared
+classifier*. It carries an inline fallback enum literal so the mapper still returns a defined
+value if `lib/headers.js` fails to load. Converging it on `classifyOutcome` requires
+re-deriving `malformed` / `failed` / `policyRejected` per hop and re-validating
+`test-chain-malformed.js` and `fuzz-chain-browser.js`; it is a refactor, tracked as a
+follow-up, and is **not** claimed as done.
+
+The legacy per-claim signals the classifier consumes:
 
 **verifier.html** — `checks[].pass ∈ {true,false,null}` accumulated into `allPassed`.
 `pass:null` sites (all four): 198 "No block header (unconfirmed?)"; 264 "No Merkle proof";
@@ -321,18 +373,43 @@ floor rejection currently folded into `valid=false` → should be `POLICY-REJECT
 **chain.html** — per-hop `result` with `failureType` strings + `claimsNotEstablished`.
 Per-hop failures map to `FAILED`/`MALFORMED` by cause; needs the same POLICY-REJECTED split.
 
-The purpose of the enum is to collapse these three encodings into one shared vocabulary
+The purpose of the enum was to collapse these three encodings into one shared vocabulary
 (a `headers.js` const, like `SCOPE_ANTICLAIMS`) with an explicit per-consumer mapping, so
-the drift this project exists to detect cannot recur. **Not implemented in this phase.**
+the drift this project exists to detect cannot recur. **Implemented**, with the `chain.html`
+classifier convergence outstanding as described above.
+
+The enum is a **label derived from existing per-claim signals**. It changes no accept/reject
+decision and no cryptographic computation. Adding it did not make any previously-rejected
+input acceptable.
 
 ### Scope-anticlaim regression invariant (proposed test, not the tautological one)
 
 Do **not** assert `SCOPE_ANTICLAIMS` against itself. Instead: run each consumer's real
 `verify()` and collect `result.claimsNotEstablished` in each mode
-(isolation, chain-verified, failed). Assert the collected arrays are **deep-equal across all
-three consumers and all modes** — same ids, same `scope`, same wording, same order — so the
-test catches wording drift, missing/extra claims, mutation, consumer-specific claims, and
-ordering changes. Ordering is treated as semantically meaningful (fixed display order).
+(isolation, chain-verified, failed).
+
+**Implementation status, and a correction to this proposal.** The collection half is
+implemented: `test/test-consumer-outcome-parity.js` drives all three shipped consumers on
+identical evidence and reads `claimsNotEstablished` off the real `verify()` results.
+
+The second half as originally written — assert the arrays are **deep-equal across all three
+consumers** — is **superseded and must not be implemented in that form.** It assumed every
+anti-claim is consumer-agnostic. That is no longer true: `chain.html` legitimately appends a
+consumer-specific anti-claim (`chain-inclusion-this-consumer`, `scope: 'not-attempted'`)
+because it loads no header chain and so can never attempt inclusion. A deep-equality
+invariant would now fail on a correct implementation, and the obvious way to make it pass
+again would be to delete a true scope boundary. The invariant that is actually in force:
+
+- the **shared** `SCOPE_ANTICLAIMS` entries must appear in every consumer, with identical
+  ids, `scope`, wording and relative order;
+- a consumer may append entries of its own, which must also carry `scope: 'not-attempted'`;
+- no anti-claim entry may contain an unconditional positive assertion (the defect corrected
+  under B6 — see readiness notes);
+- ordering remains semantically meaningful (fixed display order).
+
+Wording drift, mutation and ordering changes in the shared set are still caught. Detection of
+an *illegitimate* consumer-specific claim is now a weaker guarantee than deep equality gave,
+and that reduction is deliberate and recorded here rather than hidden.
 
 ## M. Test / conformance claims (only what the tree demonstrates)
 
@@ -344,9 +421,24 @@ claimed BRC-74 was "validated against @bsv/sdk"; removed the README "all suites 
 claim; reconciled the two contradictory README floor/isolation paragraphs to "fails closed,
 not to isolation."
 
-**No `@bsv/sdk` differential harness exists.** A whole-tree search finds `@bsv/sdk` only in
-prose/comments, never imported or executed. `validate.js` imports `crypto`, `./bump.js`,
-`./beef.js` only. Its TEST 1 oracle (`foldRoot`, validate.js:60) is a **second Merkle
+**`@bsv/sdk` status — a harness now exists; the SDK dimension has never been exercised here.**
+The earlier statement in this section ("no `@bsv/sdk` differential harness exists") is
+superseded on the first half and still correct on the second. Two harnesses are now in the
+tree: `test/interop-beef-sdk.js` (registered in `npm test`) and `test/conformance-sdk.js`
+(deliberately *not* registered — it is intended to be run by a developer who has installed the
+SDK). `test/interop-beef-sdk.js` loads the SDK through a guarded `require('@bsv/sdk')` and, when
+it is absent, prints `@bsv/sdk: NOT INSTALLED` and `SKIPPED (dimension unavailable, not
+approximated)`. It always runs a machinery self-check using only the two in-repo
+implementations, so the harness cannot silently become a no-op.
+
+This repository declares **zero runtime dependencies** and `@bsv/sdk` is not installed, so in
+every run recorded in this document the SDK comparison **skipped**. Therefore: **no claim of
+`@bsv/sdk` conformance, interoperability or byte-identity is made or supported by this tree.**
+What is established is production `lib/beef.js` against the independent in-repo oracle
+`test/oracle-beef.js`. Third-party agreement remains unverified and requires a developer to
+install the SDK and run the harness.
+
+`validate.js` imports `crypto`, `./bump.js`, `./beef.js` only. Its TEST 1 oracle (`foldRoot`, validate.js:60) is a **second Merkle
 implementation in the same file** — independent in execution path/logic, **not** in
 authorship or conceptual origin. The one external anchor is the **BRC-74 published test
 vector** (TEST 3).
@@ -485,38 +577,48 @@ Until refreshed, they should not be cited as passing suites.
 > Could a competent independent developer implement `headers-node` from this document alone
 > (without reading the JS) and know what counts as the same semantic result?
 
-**NO — not yet.** This is a precursor; the target semantics are specified but not yet
-realised in code, so an independent build would produce a differently-shaped result that
-cannot be checked for "same semantic result." Remaining ambiguities to close first:
+*This section previously answered **NO — not yet**, on the grounds that §F/§G were proposed
+rather than implemented. Items 1–5 below have since landed; the answer has changed, and the
+reasons it is still not an unqualified yes are different ones.*
 
-1. **The outcome enum and verdict composition (§F/§G) are proposed, not implemented.** The
-   code still uses three overlapping encodings (`checks[].pass/level`,
-   `chainInclusion.status`, `pass:null`). Until one shared vocabulary is emitted in results,
-   there is nothing byte-stable to conform to.
-2. **`INDETERMINATE` does not exist.** Internal exceptions still surface as failure-like
-   states; the §I test is unwritten.
-3. **`POLICY-REJECTED` is not distinguished from `FAILED`** in any consumer; sub-floor
-   rejection is currently folded into a generic invalid verdict, and policy parameters are
-   not emitted.
-4. **The evidence digest is under-specified in code.** `canonicalInput` omits `bump`
-   (and more), the field set and absent-sentinel framing in §K are not implemented, and the
-   result digest is deferred. The current Replay ID is ambiguous (same id, different verdict
-   under `bump`/`proof` disagreement).
-5. **The advisory axis (§H) is not separated** from outcome (`low confirmations` still rides
-   `pass:null`).
-6. **Structural/ordering guarantees of `claimsNotEstablished`** are asserted only via a
-   shared const, not via the cross-consumer result-object invariant in §L.
+**Qualified yes on shape; unproven in fact.** The result shape an independent build must
+produce is now emitted by this tree, so a comparison is possible where previously it was not.
+Former ambiguities, with current status:
 
-Closing items 1–5 (implementation) and adding the §L and §I tests would flip this to YES.
-Each is a defined, bounded task; none requires new verification capability. Until then, an
-independent implementation can match the **cryptographic** result (that part is fully
-specified in §C/§D/§E) but not the **semantic envelope** (the outcome/verdict/digest shape).
+1. **Outcome enum and verdict composition (§F/§G)** — **implemented.** One shared vocabulary
+   (`OUTCOME`) and one precedence ladder (`classifyOutcome`) in `lib/headers.js`, emitted by all
+   three consumers. The legacy per-claim encodings survive as classifier *inputs*, not as
+   outcome vocabularies (§L).
+2. **`INDETERMINATE`** — **emitted**, via tagged `EvaluationError` detection in all three
+   consumers, and admitted to the documented-outcome set the differential fuzzers enforce
+   (`test/fuzz-browser.js:136`, `test/fuzz-verifier-browser.js:159`). *Residual:* there is no
+   dedicated §I suite asserting every `INDETERMINATE` path; coverage is incidental
+   (`test/test-chain-malformed.js`) plus fuzz admission. The §I test remains worth writing.
+3. **`POLICY-REJECTED` distinguished from `FAILED`** — **implemented** in all three consumers
+   (readiness B2).
+4. **Evidence digest** — **field set and framing implemented** (§K); `canonicalInput` commits
+   `bump`/`beef`/`atomicBeef` with an absent-vs-empty sentinel, so the Replay ID is no longer
+   ambiguous under `bump`/`proof` disagreement. *Residual:* the framing is pinned by this
+   implementation and not cross-validated. The **result** digest remains deferred.
+5. **Advisory axis (§H) separated** — **implemented** (readiness B5).
+6. **Structural/ordering guarantees of `claimsNotEstablished`** — **partially addressed.**
+   `test/test-consumer-outcome-parity.js` collects them from real `verify()` results across all
+   three consumers rather than asserting a const against itself. The originally proposed
+   cross-consumer deep-equality invariant is superseded and must not be implemented as written
+   (§L explains why, and what replaced it).
 
----
+So items 1, 3 and 5 are closed; 2, 4 and 6 are closed in the respect that blocked conformance
+and carry the named residuals above.
 
-*This document specifies target semantics and records current behaviour with citations. It
-introduces no verification capability and changes no verification logic. The author of this
-spec also wrote the code it describes; an independent reviewer remains owed.*
+**Why this is still not an unqualified YES.** Everything above is this tree assessing itself.
+The question asks what an *independent* developer would conclude, and no independent developer
+has been asked. The specification and the verifiers derived from it share an author, and
+`headers-node-independent` is a reimplementation *against this document*, so agreement between
+them demonstrates internal consistency and nothing about external correctness. No independent
+third-party audit has been performed, and third-party (`@bsv/sdk`) agreement has never been
+exercised in this environment (§M). An independent build can match the **cryptographic** result
+with confidence; whether it would match the **semantic envelope and the digest bytes** is
+specified, plausible, and untested.
 
 ---
 
@@ -524,9 +626,10 @@ spec also wrote the code it describes; an independent reviewer remains owed.*
 
 This section freezes the **target** semantics. It is the contract an independent
 `headers-node` must reproduce. "Frozen" means the *decisions* below are settled; it does
-**not** mean the current code already emits them (see Conformance readiness — several are
-proposed, and the code still uses three legacy encodings). Each decision is traceable to
-current behaviour cited above.
+**not** mean the current code already emits them. As of the readiness review recorded below,
+the outcome enum and the precedence ladder *are* emitted by all three consumers (§L); the
+remaining divergences are named in that section. Each decision is traceable to current
+behaviour cited above.
 
 ### Inputs
 An envelope (§B): `txid`, `vout`, `satoshis`, `rawTx`, `blockHeader`, and at least one proof
@@ -584,7 +687,7 @@ Per-consumer: **explorer establishes TXID inclusion, not transaction-byte inclus
 performs no `rawTx↔txid` binding) — an independent explorer-equivalent must make the same
 narrower claim and must not report `VERIFIED` in a way that implies a specific transaction.
 
-### Evidence digest (verdict-relevant identity — field set frozen; byte-framing pending)
+### Evidence digest (verdict-relevant identity — field set frozen; framing implemented, not independently cross-validated)
 IN: `txid`, `rawTx`, `blockHeader`, `proof`, `bump`, `beef`/`atomicBeef`, checkpoint identity
 (`height`+`hash`+`nBits`), policy (`toleranceMultiplier`), spec version.
 OUT (advisory / never read by a verdict path): `vout`, `satoshis`, self-declared `blockHash`,
@@ -592,6 +695,21 @@ self-declared `blockHeight`, `confirmations`.
 Framing: length-prefixed `frame(s)=s.length+':'+s`, fixed field order, **absent ≠ empty**
 (presence sentinel), checkpoint+version included. Distinct from a **result digest** (deferred).
 This is an evidence-identity claim only: equal digest ⇒ same inputs, **never** same verdict.
+
+**Framing as implemented** (`explorer.html`, `canonicalInput` / `frame` / `frameOpt`). The
+optional-field sentinel is `frameOpt(name,val) = frame(name) + ('0' | '1' + frame(val))`, so an
+absent field contributes `frame(name)+'0'` and an empty-string field contributes
+`frame(name)+'1'+'0:'` — absent and empty are distinguishable, as required. Field order is
+fixed by the function body: `v`/spec-version, `checkpoint` (`height/hash/nBits-hex`),
+`tolerance`, `txid`, `header`, then optional `rawTx`, `bump`, `beef`, `atomicBeef`, then
+`proof` (canonicalised length, then each `hash`+`pos`). Hex is lower-cased before framing.
+
+This closes the field-set half of blocker B4: the digest now commits to `bump`, `beef` and
+`atomicBeef`, so two envelopes with identical `proof` and contradictory `bump` no longer share
+a Replay ID. **Limitation, stated rather than glossed:** the framing above is the framing of
+*this* implementation. It has not been reproduced by a genuinely independent implementation, so
+it is a pinned reference framing, not a cross-validated interoperable one. An independent build
+that agrees on §C/§D/§E could still disagree on the digest bytes.
 
 ### Conformance requirement
 An implementation conforms if, for every corpus case, it (a) computes the identical
@@ -609,54 +727,76 @@ in a declared `POLICY-REJECTED` threshold.
 | 3 | wrong Merkle sibling | `FAILED` (root mismatch) |
 | 4 | wrong TXID (`txid≠SHA256d(rawTx)`) | `FAILED` (explorer: N/A — no binding) |
 | 5 | wrong header (root≠proof root) | `FAILED` |
-| 6 | intermediate sub-floor header | `POLICY-REJECTED` (target: today `FAILED` — blocker B2) |
+| 6 | intermediate sub-floor header | `POLICY-REJECTED` (emitted; see readiness B2) |
 | 7 | chain membership failure | `FAILED` (`not_in_chain`) |
 | 8 | malformed envelope (bad hex/trailing/depth>32/atomic-subject-not-last) | `MALFORMED` |
 | 9 | missing / empty / malformed header | `MALFORMED` (GAP A: header is required) |
 | 10 | missing proof (multi-tx block) | `FAILED` (absent proof = empty depth-0; root = txid ≠ header root) |
-| 11 | internal verifier exception | `INDETERMINATE` (target: today mislabeled — blocker B3) |
+| 11 | internal verifier exception | `INDETERMINATE` (emitted; see readiness B3) |
 | 12 | advisory-only low confirmations | outcome unchanged + advisory flag |
 | 13 | same evidence, different chain state | outcome may differ; **evidence digest identical** |
 | 14 | equivalent evidence | identical semantic result + identical evidence digest |
 
 ---
 
-# Conformance readiness — CONFIRMED THIS PASS
+# Conformance readiness
 
-**NOT READY.** The cryptographic contract (§C/§D/§E) is fully specified and an independent
-build could match it today. The **semantic envelope** is not yet emitted by the code. Blockers,
-each confirmed against the current tree this pass:
+*Reviewed against `f4f3d3b306e671206bcb28c1cc399b9ace56d7f9`. Line cites are from that
+commit. This section replaces an earlier revision that read **NOT READY** and listed B1–B6
+as open; that revision was written before the labelling work landed and had become stale.*
 
-- **B1 — three legacy outcome encodings persist.** verifier `checks[].pass∈{true,false,null}`
-  + title; explorer `r.result.valid` + `chainInclusion.status∈{unknown,verified,not_in_chain}`;
-  chain `failureType∈{STRUCTURE_INVALID,ORDERING_INVALID,TXID_MISMATCH,TX_PARSE_ERROR,POW_INVALID,MERKLE_MISMATCH}`.
-  None is the frozen enum. Until one shared vocabulary is emitted, there is nothing byte-stable
-  to conform to.
-- **B2 — POLICY-REJECTED not distinguished from FAILED.** Floor rejection is a plain
-  `pass:false` (verifier.html:185) / folded into `valid=false` (explorer.html:537); chain uses
-  `POW_INVALID`. Sub-floor (well-formed, valid) is currently indistinguishable from a crypto
-  failure. Fails closed correctly, but the outcome label is wrong for conformance.
-- **B3 — INDETERMINATE not emitted; exceptions mislabeled.** chain.html:800 catches a hop
-  exception and returns `STRUCTURE_INVALID` (→ MALFORMED); verifier renders dependency
-  exceptions as `✗ parse/chain error` (→ FAILED-like). Both violate "a tool failure is not a
-  claim about the evidence." §I test unwritten.
-- **B4 — evidence digest incomplete and `bump`-blind (real defect).** `canonicalInput`
-  (explorer.html:330) commits to `txid`/`blockHeader`/`proof` only; the verifier **prefers
-  `bump`**. Two envelopes with identical `proof` and contradictory `bump` → different verdict,
-  **same Replay ID**. This is a genuine semantic defect and a **hard blocker to
-  cross-implementation digest compatibility**. Field set is frozen above; the code does not yet
-  implement it, and absent-sentinel/field-order framing is unpinned. (Not fixed this pass, per
-  instruction.)
-- **B5 — advisory axis not separated in representation.** Low-confirmations rides `pass:null`
-  on the checks channel rather than a dedicated advisory field.
-- **B6 — cross-consumer representation divergence.** The explorer `rawTx↔txid` non-binding is an
-  **intentional scope difference** (keep, but spec it — done). The differing outcome encodings
-  (B1) and the exception mislabeling (B3) are **genuine semantic inconsistencies**, not mere
-  presentation.
+**Cryptographic contract: specified.** §C/§D/§E plus the corpus determine the cryptographic
+result, as before.
 
-Non-blockers (classified, not to be "fixed"): explorer's txid-inclusion scope (intentional,
-documented); UI colour/wording per consumer (presentation); `validate.js` non-deterministic
-count (documented; fuzzer by design).
+**Semantic envelope: now emitted, with two named residuals.** The shared enum and the §G
+precedence ladder are implemented and all three consumers emit them. The honest summary is
+**not** "ready" and **not** "not ready": the labelling blockers B1–B6 are addressed, and what
+remains open is independent reproduction — which no amount of work inside this tree can supply.
+
+| # | Blocker | Status | Evidence at `f4f3d3b` |
+|---|---|---|---|
+| B1 | three legacy outcome encodings | **addressed** (one residual) | `OUTCOME` (`lib/headers.js:538`), `classifyOutcome` (`:557`), exported (`:589–590`); `verifier.html:324` and `explorer.html:610` call it; `chain.html:749` `deriveChainOutcome` emits the same enum via its own mapper |
+| B2 | POLICY-REJECTED not distinguished from FAILED | **addressed** | `policyRejected` signal at `explorer.html:615`, `verifier.html:326`; `chain.html:566` sets `POLICY_REJECTED`, mapped at `:758`; precedence row 4 |
+| B3 | INDETERMINATE not emitted; exceptions mislabeled | **addressed** | `isEvaluationError` tagging: `explorer.html:489–492`, `:581–584`; `verifier.html:201, 220, 302, 325`; `chain.html:751` |
+| B4 | evidence digest incomplete and `bump`-blind | **addressed** (field set + framing); interop unverified | `frameOpt` (`explorer.html:332`), `canonicalInput` (`:342`) now commits `rawTx`/`bump`/`beef`/`atomicBeef` with an absent-vs-empty sentinel; see §K |
+| B5 | advisory axis not separated | **addressed** | dedicated `advisories: []` (`explorer.html:399`, populated `:407`); `advisory: true` flag and separate render axis (`verifier.html:312, 377, 383–385`) |
+| B6 | cross-consumer representation divergence | **addressed** | `chain.html:755` returns `VERIFIED_ISOLATION` where it previously returned `VERIFIED`; local `CHAIN_SCOPE_ANTICLAIMS` (`:219`) adds `chain-inclusion-this-consumer` (`:221`), appended on both return paths (`:776`); the shared `most-work-chain` entry (`lib/headers.js:492`) no longer opens with an unconditional positive assertion |
+
+**The B6 correction, recorded.** `chain.html` verifies lineage, Merkle inclusion and
+proof-of-work per hop but loads **no header chain**. It previously returned `VERIFIED` on a
+valid result, asserting a checkpoint-anchored inclusion it had never attempted; §G step 5
+applies and step 6 is unreachable for this consumer. Two things were corrected together: the
+verdict, and the shared scope anti-claim whose `detail` opened by asserting that "a
+checkpoint-anchored, linked, PoW-valid chain under the configured difficulty policy is
+verified" — text that reached the rendered verdict and `exportJSON()`, inside a block headed
+"This tool does NOT establish". A scope anti-claim must carry no unconditional positive
+assertion. `test/test-chain-malformed.js` expected `VERIFIED` for the valid single-hop case;
+that expectation encoded the defect and was corrected as part of the fix, not relaxed to make
+a test pass.
+
+### Residuals — open, and not to be described as closed
+
+- **R1 — `chain.html` has not converged on the shared classifier.** It emits the shared
+  vocabulary through its own `deriveChainOutcome` mapper. Vocabulary divergence is resolved;
+  *derivation* divergence is not. Two mappers can drift, which is the class of defect B6 was.
+  Mitigated, not eliminated, by `test/test-consumer-outcome-parity.js`, which asserts the three
+  consumers agree on identical evidence. Converging it is a refactor (§L).
+- **R2 — the evidence-digest framing is pinned, not cross-validated.** §K records the exact
+  framing the reference implementation uses. No independent implementation has reproduced it.
+- **R3 — no independent third-party reproduction, and shared authorship.** The specification
+  and the spec-derived verifiers in this tree share an author. `headers-node-independent`
+  is a reimplementation against this specification, not an independent development; agreement
+  between them is evidence of internal consistency, not of external correctness. No
+  independent third-party security audit has been performed.
+- **R4 — `@bsv/sdk` agreement is unverified.** The harness exists and skips; see §M.
+
+### What "ready" would require
+
+Not more code in this tree. It requires a developer with no hand in this specification to
+build a verifier from §§A–O alone, run the frozen corpus, and agree on every top-level
+outcome *and* the digest bytes. Until that happens the correct statement is: the contract is
+specified and internally consistent, and its conformance claims are untested against an
+outside party.
 
 ## Final question
 
@@ -664,10 +804,17 @@ count (documented; fuzzer by design).
 > `headers-node` and know the result for every important adversarial case?
 
 **Cryptographic inclusion result: YES** — §C/§D/§E plus the corpus fully determine cases
-1–5, 7–10, 13–14 at the cryptographic level. **Full semantic result: NO** — cases 6
-(POLICY-REJECTED vs FAILED), 11 (INDETERMINATE), and the evidence digest (B4) are specified as
-*targets* but not yet realised, so two implementations built today would agree on the crypto and
-disagree on the outcome label and the digest. Closing B1–B5 (implementation) and finalizing the
-digest byte-framing flips this to YES. None requires new verification capability; each is a
-bounded labeling/representation change to be done as its own pass, deliberately **not** in this
-review.
+1–5, 7–10, 13–14 at the cryptographic level.
+
+**Full semantic result: specified, and unproven.** The gaps that made this a clear "NO" in the
+earlier revision — case 6 (`POLICY-REJECTED` vs `FAILED`), case 11 (`INDETERMINATE`), and the
+`bump`-blind digest (B4) — are now realised in the code and recorded above with line cites, and
+the digest framing is pinned in §K. A developer following §§A–O should now be able to derive
+the same top-level outcome for every corpus case.
+
+That is a statement about the specification, not a demonstration. It has not been tested the
+only way it can be: by someone outside this work building to the spec and comparing results
+(residuals R2–R4). So the answer is **not** "YES" — it is "the specification no longer
+knowingly withholds what an implementer needs, and whether that is sufficient remains
+unverified." The remaining convergence item (R1) is a bounded refactor, not a missing
+capability.

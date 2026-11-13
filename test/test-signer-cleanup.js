@@ -26,15 +26,59 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const UNFIXED = process.argv.includes('--unfixed');
+
+// ---------------------------------------------------------------------------
+// NEGATIVE-CONTROL BASELINE
+//
+// This control previously read the pre-fix source with `git show HEAD:signer.html`.
+// Once the fix was committed, HEAD *contained* the fix, so the control compared the
+// fix against itself, reported zero failures, and printed text that read like
+// success. It was inert and nothing noticed.
+//
+// The baseline is now an immutable fixture: the exact pre-fix signer.html, taken
+// verbatim from commit c0477870 (the last commit before F-1 landed). It is not a
+// reconstruction and not a transformation of the current file — it is the original
+// file, so it exhibits the original defect by being the original code.
+//
+// Two guards make fixture rot an explicit, diagnosable failure rather than a silent
+// one:
+//   FIX-0a  the fixture's SHA-256 is pinned below. Any edit fails immediately and
+//           says so, instead of surfacing later as a confusing assertion failure.
+//   FIX-0b  the fixture is checked to still EXHIBIT the defect (no clearKeyState,
+//           and a bare createSignedTransaction() call with no error handling).
+// If either guard fails, the suite fails. A control that detects nothing is a
+// failing control, enforced at the bottom of this file.
+//
+// No network and no git history are required.
+// ---------------------------------------------------------------------------
+const FIXTURE_REL = 'test/fixtures/prefix-f1-signer.html';
+const FIXTURE_SHA256 = 'c4a85cffc27bd3721959d357e4c0fc272756089b37beca0b7c47792497338933';
+
+// Minimum number of assertions that MUST detect the defect in the pre-fix fixture.
+// Requiring merely "at least one" is too weak: disabling 37 of 38 detections would
+// still pass, so a collapse in detection coverage would go unnoticed. This is the
+// count observed when the control was written. More is fine (a new assertion that also
+// catches F-1); fewer fails loudly. If you intentionally change the assertion set,
+// update this number in the same commit so the change is an explicit decision.
+const MIN_DETECTIONS = 38;
 
 let pass = 0, fail = 0;
 const failures = [];
 function check(name, cond) {
   if (cond) { pass++; console.log('PASS ' + name); }
-  else { fail++; failures.push(name); console.log('FAIL ' + name); }
+  else {
+    fail++; failures.push(name);
+    // Under --unfixed a failing assertion is the EXPECTED outcome: it is the control
+    // detecting the original defect. Labelling it 'FAIL' would misread as a problem,
+    // and would also look like a real failure to run-all.js's output scanner.
+    // FIX-0* are control-integrity assertions and are genuine failures in both modes.
+    const expected = UNFIXED && name.indexOf('FIX-0') !== 0;
+    console.log((expected ? 'DETECT ' : 'FAIL ') + name);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -94,8 +138,8 @@ function makeDom(opts) {
 // ---------------------------------------------------------------------------
 function loadSigner(opts) {
   opts = opts || {};
-  const html = (opts.source === 'HEAD')
-    ? require('child_process').execSync('git show HEAD:signer.html', { cwd: ROOT, maxBuffer: 1 << 24 }).toString('utf8')
+  const html = (opts.source === 'PREFIX')
+    ? fs.readFileSync(path.join(ROOT, FIXTURE_REL), 'utf8')
     : fs.readFileSync(path.join(ROOT, 'signer.html'), 'utf8');
   const open = html.indexOf('<script>');
   const close = html.indexOf('</script>', open);
@@ -181,7 +225,31 @@ function clickConfirmSign(h) {
   els['confirm-sign']._onclick.call(els['confirm-sign']);
 }
 
-console.log('=== F-1 signer key-state cleanup' + (UNFIXED ? '  [NEGATIVE CONTROL: unfixed source]' : '') + ' ===\n');
+console.log('=== F-1 signer key-state cleanup' +
+  (UNFIXED ? '  [NEGATIVE CONTROL vs immutable pre-fix fixture]' : '') + ' ===\n');
+
+// ---------------------------------------------------------------------------
+// FIX-0 — fixture integrity. Runs in BOTH modes: the fixed run uses the fixture for
+// the EQ byte-equivalence comparison, so a rotten fixture must be caught either way.
+// ---------------------------------------------------------------------------
+{
+  const fpath = path.join(ROOT, FIXTURE_REL);
+  let raw = null;
+  try { raw = fs.readFileSync(fpath); } catch (_) {}
+  check('FIX-0a pre-fix fixture present at ' + FIXTURE_REL, raw !== null);
+  if (raw) {
+    const got = crypto.createHash('sha256').update(raw).digest('hex');
+    check('FIX-0a fixture SHA-256 matches the pin (' + FIXTURE_SHA256.slice(0, 12) + '...)',
+      got === FIXTURE_SHA256);
+    if (got !== FIXTURE_SHA256) console.log('     fixture has been MODIFIED: got ' + got);
+    const txt = raw.toString('utf8');
+    // The fixture must still exhibit the ORIGINAL defect, or the control is vacuous.
+    check('FIX-0b fixture exhibits the defect: no clearKeyState',
+      txt.indexOf('clearKeyState') === -1);
+    check('FIX-0b fixture exhibits the defect: createSignedTransaction() called unguarded',
+      /\n\s*createSignedTransaction\(\);/.test(txt));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Negative control. Rather than textually reverting the fix (which only ever tests
@@ -189,7 +257,7 @@ console.log('=== F-1 signer key-state cleanup' + (UNFIXED ? '  [NEGATIVE CONTROL
 // git HEAD and runs this identical suite against it. If the suite does not fail
 // there, the suite is not testing anything.
 // ---------------------------------------------------------------------------
-const loadOpts = UNFIXED ? { source: 'HEAD' } : {};
+const loadOpts = UNFIXED ? { source: 'PREFIX' } : {};
 
 // ---------------------------------------------------------------------------
 // PROBE-0 — prove the probe is not vacuous
@@ -372,7 +440,7 @@ if (!UNFIXED) {
       fee: h.els['result-fee'].textContent
     };
   }
-  const before = signAndCapture({ source: 'HEAD' });
+  const before = signAndCapture({ source: 'PREFIX' });
   const after = signAndCapture({});
   check('EQ-1 signed transaction hex byte-identical to original', before.hex === after.hex && after.hex.length > 40);
   check('EQ-2 txid identical to original', before.txid === after.txid && /^[0-9a-f]{64}$/.test(after.txid));
@@ -382,11 +450,51 @@ if (!UNFIXED) {
 }
 
 console.log('\n----------------------------------------');
-console.log('PASSED: ' + pass + '   FAILED: ' + fail);
-if (fail) { console.log('\nFAILURES:'); failures.forEach(f => console.log('  - ' + f)); }
 
-if (UNFIXED) {
-  console.log('\nNEGATIVE CONTROL: expected failures against the unfixed source.');
-  process.exit(fail > 0 ? 0 : 1);   // control PASSES only if the suite FAILED
+// ---------------------------------------------------------------------------
+// Outcome reporting. The two modes mean opposite things, so they are labelled
+// differently: under --unfixed a non-zero failure count is the SUCCESS condition.
+// Fixture-integrity failures (FIX-0*) are never "expected detection" — they mean the
+// control itself is broken, so they are called out separately.
+// ---------------------------------------------------------------------------
+const fixtureBroken = failures.some(f => f.indexOf('FIX-0') === 0);
+
+if (!UNFIXED) {
+  console.log('PASSED: ' + pass + '   FAILED: ' + fail);
+  if (fail) { console.log('\nFAILURES:'); failures.forEach(f => console.log('  - ' + f)); }
+  process.exit(fail ? 1 : 0);
 }
-process.exit(fail ? 1 : 0);
+
+// --- negative control mode -------------------------------------------------
+const detected = failures.filter(f => f.indexOf('FIX-0') !== 0);
+console.log('NEGATIVE CONTROL  assertions run: ' + (pass + fail) +
+            '   defects detected: ' + detected.length +
+            '   control integrity failures: ' + (fail - detected.length));
+
+if (fixtureBroken) {
+  console.log('\nCONTROL BROKEN — the pre-fix fixture is missing, modified, or no longer');
+  console.log('exhibits the defect. This is NOT expected detection:');
+  failures.filter(f => f.indexOf('FIX-0') === 0).forEach(f => console.log('  - ' + f));
+  console.log('\nRESULT: FAIL (control cannot prove anything in this state)');
+  process.exit(1);
+}
+if (detected.length === 0) {
+  console.log('\nCONTROL INERT — ran against the pre-fix fixture and detected NO defect.');
+  console.log('Either the assertions no longer cover F-1, or the fixture is not the');
+  console.log('pre-fix code. A control that detects nothing proves nothing.');
+  console.log('\nRESULT: FAIL');
+  process.exit(1);
+}
+if (detected.length < MIN_DETECTIONS) {
+  console.log('\nCONTROL WEAKENED — detected ' + detected.length + ' defect(s) but expected at least ' +
+              MIN_DETECTIONS + '.');
+  console.log('Detection coverage has dropped. Either assertions that caught F-1 were');
+  console.log('removed or neutered, or the fixture no longer exercises them. If the');
+  console.log('assertion set changed on purpose, update MIN_DETECTIONS deliberately.');
+  console.log('\nRESULT: FAIL');
+  process.exit(1);
+}
+console.log('\nEXPECTED DETECTIONS (the control working correctly):');
+detected.forEach(f => console.log('  - ' + f));
+console.log('\nRESULT: PASS (' + detected.length + ' original F-1 defect(s) detected in the pre-fix fixture)');
+process.exit(0);
