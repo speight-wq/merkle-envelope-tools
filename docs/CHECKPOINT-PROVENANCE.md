@@ -81,16 +81,21 @@ important sentence about this anchor:
 | All five definitions agree on height, full hash and `nBits` | `node test/test-checkpoint-consistency.js` | No drift between copies |
 | `headers.bin` anchor prefix matches the checkpoint | `verify_vectors.py` CP.1 | The shipped chain file and the constant agree |
 | Block 940,000's `prevBlock` commits to the checkpoint hash | `verify_vectors.py` CP.2 | A successor header cryptographically references this anchor |
-| Block 940,000 satisfies its own proof-of-work | `verify_vectors.py` CP.3 | That reference is backed by real work |
+| Block 940,000 satisfies its own proof-of-work | `verify_vectors.py` CP.3 | That header's hash meets the target it declares |
 | Block 940,000's difficulty is within the ×8 floor | `verify_vectors.py` CP.4 | CP.3 cannot be satisfied by a grindable low-difficulty header |
 | The checkpoint hash is below the target its own `nBits` implies | `verify_vectors.py` CP.5, and Step 3 of `docs/CROSS-VERIFICATION.md` | Hash and `nBits` are mutually consistent — a pair failing this could not be the same block |
 
-Together these mean a forged anchor would need a proof-of-work-valid header at
-near-checkpoint difficulty pointing at it. That costs hashpower, not a text editor.
+Together these establish that the five definitions and the supplied successor header are
+mutually consistent, and that the header meets the proof-of-work target it declares at a
+difficulty within the checkpoint's floor.
 
-**They are nonetheless internal consistency, not external authenticity.** The successor header
-is shipped in this repository alongside the value it confirms, so anyone able to alter one could
-alter both. See §D.
+**They do not independently authenticate the checkpoint.** The checkpoint definitions and the
+successor header are all repository data, so coordinated changes to those inputs — a substituted
+checkpoint accompanied by a matching header — would leave every check above passing while the
+anchor itself was wrong. This is **internal consistency, not external authenticity**: the
+successor header is shipped in this repository alongside the value it confirms, so anyone able to
+alter one could alter both. Independent confirmation against external sources remains necessary.
+See §D.
 
 ### Online, by you
 

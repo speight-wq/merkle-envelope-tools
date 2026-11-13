@@ -438,9 +438,17 @@ def run_tests():
     #         trivially-grindable low-difficulty header cannot satisfy CP.3
     #   CP.5  the checkpoint hash is below the target implied by its own nBits
     #
-    # CP.2 + CP.3 + CP.4 together mean a forged anchor would require a header with genuine
-    # proof-of-work at near-checkpoint difficulty, which costs hashpower rather than a text
-    # editor. CP.4 is what makes CP.3 meaningful.
+    # CP.2 + CP.3 + CP.4 together establish that the committed successor header links to the
+    # checkpoint and meets the proof-of-work target it declares, at a difficulty within the
+    # checkpoint's floor. CP.4 is what makes CP.3 meaningful: without it the declared target
+    # could be trivial and CP.3 would be satisfiable by grinding.
+    #
+    # This is a statement about the SUPPLIED inputs, not about the network. The checkpoint
+    # definitions and the successor header are both repository data, so a coordinated change
+    # to those inputs - a different checkpoint with a matching header placed beside it -
+    # leaves every check above passing. These checks therefore do not independently
+    # authenticate the checkpoint, and independent confirmation against external sources
+    # remains necessary.
     #
     # LIMITATION, stated rather than implied: this is INTERNAL CONSISTENCY, not EXTERNAL
     # AUTHENTICITY. The successor header lives in the same repository as the value it

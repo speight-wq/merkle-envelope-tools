@@ -341,10 +341,18 @@ reads the successor header shipped at `test/headers-940000-to-940000.bin` and co
 file's anchor matches the checkpoint, that block 940,000's `prevBlock` commits to the checkpoint
 hash, that that header satisfies its own proof-of-work, and that its difficulty sits within the
 ×8 floor so the proof-of-work check cannot be satisfied by a grindable low-difficulty header.
-Forging that would require real hashpower rather than an editor.
+Together these establish internal consistency between the checkpoint definitions and the
+supplied header, and that the header meets the proof-of-work target it declares.
 
-It is still **internal consistency, not external authenticity**: the successor header lives in
-this repository alongside the value it confirms, so anyone able to change one could change both.
+They do **not independently authenticate the checkpoint**. Both the checkpoint definitions and
+the successor header are repository data, so coordinated changes to those inputs — a substituted
+checkpoint with a matching header placed alongside it — would leave every check passing while
+the anchor itself was wrong. Independent confirmation against external sources remains
+necessary.
+
+It is therefore **internal consistency, not external authenticity**: the successor header lives
+in this repository alongside the value it confirms, so anyone able to change one could change
+both.
 No offline check — not Step 3, not `verify_vectors.py`, not
 `test/test-checkpoint-consistency.js` — can establish that block 939,999 exists, that this is
 its real hash and `nBits`, or that it is on the most-work chain. **Only Steps 1 and 2, performed
